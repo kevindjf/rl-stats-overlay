@@ -13,11 +13,18 @@
 
 ## ✨ Ce que ça fait
 
-- **Boost overlay** : un anneau autour de la jauge de boost qui affiche `W (wins)`, `L (losses)`, et la **streak actuelle** (🔥 séries de wins / ❄️ séries de losses)
-- **HUD in-game** : fenêtre transparente always-on-top qui s'affiche par-dessus Rocket League en mode plein écran fenêtré (borderless)
-- **Browser Source OBS** : la même chose en source navigateur pour les streamers
-- **Session intelligente** : la session se réinitialise après 6h d'inactivité, persiste entre les redémarrages
-- **Configuration automatique** : détection auto de Rocket League (Steam et Epic), patch de la config en un clic
+<p align="center">
+  <img alt="Aperçu de l'overlay" src="docs/images/preview.png" width="640">
+  <br><em>Aperçu : ta session en direct (wins, losses, streak) affichée par-dessus Rocket League.</em>
+</p>
+
+- **Un overlay en direct de ta session** : nombre de **wins**, de **losses**, et la **streak** en cours (🔥 série de victoires, ❄️ série de défaites). À chaque match terminé, les chiffres bougent tout seuls.
+- **Deux modes d'affichage au choix** (ou les deux en même temps) :
+  - 🎮 **HUD in-game** — une petite fenêtre transparente posée par-dessus ton Rocket League pendant que tu joues
+  - 📺 **Source navigateur OBS** — pour l'afficher sur ton stream
+- **Plusieurs thèmes** prêts à l'emploi (et tu peux créer le tien — voir [le guide designer](docs/themes-fr.md))
+- **Session intelligente** : tes wins/losses sont sauvegardés et persistent entre redémarrages. La session se réinitialise toute seule après 6h d'inactivité (nouvelle journée de jeu = compteurs propres).
+- **Setup guidé** : pas besoin d'aller chercher tes fichiers à la main — l'app retrouve toute seule où ton Rocket League est installé (Steam ou Epic) et active pour toi la fonction "stats en direct" déjà intégrée au jeu (mais désactivée par défaut). Il te reste juste à taper ton pseudo en jeu, pour que l'overlay sache lequel des joueurs du match c'est toi.
 
 ## 🚀 Installation (3 minutes, zéro ligne de commande)
 
@@ -85,15 +92,6 @@ Voir [docs/development.md](docs/development.md) pour :
 - Tester les overlays sans Rocket League grâce au mock server (`bun run dev/mock-server.ts`)
 - Compiler localement
 - Architecture du projet
-
-## 🗺 Roadmap
-
-- [x] **v1.0** : boost overlay (W/L/streak)
-- [ ] **v1.1** : barre stats live (goals/assists/saves/shots/demos)
-- [ ] **v1.2** : événements visuels (CrossbarHit, GoalScored avec speed)
-- [ ] **v1.3** : récap post-match (delta session)
-- [ ] **v2.0** : code-signing (suppression du SmartScreen warning), localisation EN/FR
-- [ ] **v2.x** : éditeur visuel d'overlays (couleurs, position, taille via UI)
 
 ## 📜 Licence
 
