@@ -194,7 +194,6 @@ await refresh();
 // Live updates pushed by the Rust side.
 listen("rlstats://connected", () => refresh());
 listen("rlstats://session-changed", () => refresh());
-listen("rlstats://hud-edit-mode", () => refresh());
 
 // Re-poll every second so the connected dot stays accurate even if events drop.
 setInterval(() => {
@@ -304,7 +303,6 @@ function renderDashboard() {
                 <option value="50">50 px</option>
               </select>
             </label>
-            <button id="btn-edit-hud" class="ghost" title="Activer le drag à la souris (Ctrl+Shift+L)">📐 Mode drag</button>
           </div>
 
           <div class="geom-grid">
@@ -343,7 +341,6 @@ function renderDashboard() {
   document.getElementById("btn-reset")?.addEventListener("click", onResetSession);
   bindTeamSizeFilter();
   document.getElementById("btn-toggle-hud")?.addEventListener("click", onToggleHud);
-  document.getElementById("btn-edit-hud")?.addEventListener("click", onEditHud);
   document.getElementById("btn-reload-hud")?.addEventListener("click", onReloadHud);
   document.getElementById("btn-copy-url")?.addEventListener("click", onCopyUrl);
   document.getElementById("btn-open-url")?.addEventListener("click", onOpenUrl);
@@ -612,14 +609,6 @@ function bindTeamSizeFilter() {
 async function onToggleHud() {
   await invoke("toggle_hud");
   await refresh();
-}
-
-async function onEditHud() {
-  await invoke("set_hud_edit_mode", { enabled: true });
-  alert(
-    "Mode édition activé.\n\nTu peux maintenant déplacer et redimensionner la fenêtre du HUD.\n" +
-      "Quand tu as terminé, ré-appuie sur Ctrl+Shift+L (ou clique de nouveau ici).",
-  );
 }
 
 async function onReloadHud() {

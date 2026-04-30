@@ -19,7 +19,6 @@ tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
-tauri-plugin-global-shortcut = "2"
 
 # Async runtime + HTTP / WS
 tokio = { version = "1", features = ["full"] }

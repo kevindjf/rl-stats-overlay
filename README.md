@@ -53,10 +53,11 @@
 
 1. Ouvre RL Stats Overlay
 2. Clique **▶ Afficher le HUD** → une fenêtre transparente apparaît
-3. Clique **📐 Repositionner** (ou raccourci global <kbd>Ctrl + Shift + L</kbd>) pour sortir du mode click-through et déplacer la fenêtre par-dessus la jauge de boost en jeu
-4. Re-clique <kbd>Ctrl + Shift + L</kbd> pour figer la position
+3. Pour la positionner, utilise les champs **X / Y / Width / Height** dans la section *HUD* (pas réglable de 1 à 50 px). Les valeurs sont sauvegardées et persistées entre les redémarrages.
 
 > ⚠️ **Important** : Rocket League doit tourner en **plein écran fenêtré (borderless)** pour que la fenêtre transparente s'affiche par-dessus. Dans RL : *Settings → Video → Window Mode → **Borderless**.*
+
+> 💡 Le drag à la souris arrivera dans une prochaine version. Pour l'instant, le positionnement se fait au pixel près via les steppers numériques.
 
 ## 📺 Utilisation OBS (streamers)
 

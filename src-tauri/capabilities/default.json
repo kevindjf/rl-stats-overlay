@@ -12,7 +12,6 @@
     "core:window:allow-set-position",
     "core:window:allow-set-size",
     "core:window:allow-set-ignore-cursor-events",
-    "core:window:allow-start-dragging",
     "core:event:default",
     "core:event:allow-emit",
     "core:event:allow-listen",
@@ -20,9 +19,6 @@
     "dialog:default",
     "dialog:allow-open",
     "clipboard-manager:default",
-    "clipboard-manager:allow-write-text",
-    "global-shortcut:default",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister"
+    "clipboard-manager:allow-write-text"
   ]
 }

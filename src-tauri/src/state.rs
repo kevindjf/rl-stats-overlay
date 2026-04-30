@@ -23,8 +23,6 @@ pub struct AppState {
     /// Last MatchGuid we already counted toward the W/L tally — guards
     /// against double-counting if events replay.
     pub last_counted_match: Mutex<Option<String>>,
-    /// True when the HUD is in edit mode (cursor events not ignored, draggable).
-    pub hud_edit_mode: AtomicBool,
     /// Team size of the current match (1, 2, 3, 4) — the max players-per-team
     /// count we've seen in the latest UpdateState. 0 = unknown / no data yet.
     /// Read at `MatchEnded` to decide whether to count the result toward the
@@ -49,7 +47,6 @@ impl AppState {
             http_port: AtomicU16::new(0),
             local_team: Mutex::new(None),
             last_counted_match: Mutex::new(None),
-            hud_edit_mode: AtomicBool::new(false),
             current_team_size: AtomicU8::new(0),
             hud_loaded: AtomicBool::new(false),
             settings_writer: OnceCell::new(),

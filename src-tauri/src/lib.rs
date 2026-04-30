@@ -29,7 +29,6 @@ use crate::{
 
 const SETTINGS_WINDOW: &str = "settings";
 const HUD_WINDOW: &str = "hud";
-const HUD_TOGGLE_SHORTCUT: &str = "Ctrl+Shift+L";
 
 // ---------- Tauri commands exposed to the frontend ---------------------------
 
@@ -235,7 +234,7 @@ fn toggle_hud(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<bool, S
         // launch. We force-fetch with a fresh `?t=` query *only on the very
         // first show* — every subsequent toggle should keep the loaded page
         // and just call `show()`, otherwise the user sees a flash + font
-        // reload + animation reset every time they hit Ctrl+Shift+L.
+        // reload + animation reset every time the HUD is toggled.
         if !state.hud_loaded.swap(true, Ordering::SeqCst) {
             let _ = window.eval(
                 "window.location.href = window.location.pathname + '?t=' + Date.now()",
@@ -339,29 +338,6 @@ fn open_folder_in_explorer(path: &std::path::Path) -> std::io::Result<()> {
 #[cfg(all(unix, not(target_os = "macos")))]
 fn open_folder_in_explorer(path: &std::path::Path) -> std::io::Result<()> {
     std::process::Command::new("xdg-open").arg(path).spawn()?;
-    Ok(())
-}
-
-#[tauri::command]
-fn set_hud_edit_mode(
-    app: AppHandle,
-    enabled: bool,
-    state: State<'_, Arc<AppState>>,
-) -> Result<(), String> {
-    let window = hud_window(&app).ok_or("HUD window not initialised")?;
-    window
-        .set_ignore_cursor_events(!enabled)
-        .map_err(|e| e.to_string())?;
-    state.hud_edit_mode.store(enabled, Ordering::SeqCst);
-    if enabled {
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
-    let _ = window.eval(&format!(
-        "document.body.classList.toggle('edit-mode', {})",
-        enabled
-    ));
-    let _ = app.emit("rlstats://hud-edit-mode", enabled);
     Ok(())
 }
 
@@ -496,7 +472,6 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(app_state.clone())
         .invoke_handler(tauri::generate_handler![
             get_state,
@@ -507,7 +482,6 @@ pub fn run() {
             complete_setup,
             toggle_hud,
             reload_hud,
-            set_hud_edit_mode,
             set_hud_geometry,
             set_theme,
             set_theme_var,
@@ -591,9 +565,6 @@ pub fn run() {
             }
             ws_client::spawn(handle.clone(), app_state.clone());
 
-            // Global hotkey: Ctrl+Shift+L toggles HUD edit mode.
-            register_hotkey(&handle);
-
             // Settings window: closing the "X" hides to the tray instead of
             // quitting, so the HUD and the global hotkey stay live in the
             // background. Use the tray menu (or the in-app Quit button) to
@@ -619,43 +590,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
-#[cfg(desktop)]
-fn register_hotkey(app: &AppHandle) {
-    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-
-    let app_handle = app.clone();
-    let state: Arc<AppState> = app.state::<Arc<AppState>>().inner().clone();
-
-    let result = app.global_shortcut().on_shortcut(
-        HUD_TOGGLE_SHORTCUT,
-        move |_app, _shortcut, event| {
-            if event.state() != ShortcutState::Pressed {
-                return;
-            }
-            let entering_edit_mode = !state.hud_edit_mode.load(Ordering::SeqCst);
-            state
-                .hud_edit_mode
-                .store(entering_edit_mode, Ordering::SeqCst);
-
-            let Some(hud) = hud_window(&app_handle) else { return };
-            let _ = hud.set_ignore_cursor_events(!entering_edit_mode);
-            if entering_edit_mode {
-                let _ = hud.show();
-                let _ = hud.set_focus();
-            }
-            let _ = hud.eval(&format!(
-                "document.body.classList.toggle('edit-mode', {})",
-                entering_edit_mode
-            ));
-            let _ = app_handle.emit("rlstats://hud-edit-mode", entering_edit_mode);
-        },
-    );
-
-    if let Err(e) = result {
-        warn!(?e, "failed to register HUD toggle shortcut");
-    }
-}
-
-#[cfg(not(desktop))]
-fn register_hotkey(_app: &AppHandle) {}
