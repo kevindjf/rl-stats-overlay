@@ -126,6 +126,10 @@ pub fn settings_dir() -> Result<PathBuf> {
     Ok(base.join(APP_DIR_NAME))
 }
 
+pub fn logs_dir() -> Result<PathBuf> {
+    Ok(settings_dir()?.join("logs"))
+}
+
 /// Writes to a tmp file and renames to target — prevents corruption if the
 /// process is killed mid-write.
 fn atomic_write(target: &Path, bytes: &[u8]) -> Result<()> {

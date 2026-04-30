@@ -328,6 +328,9 @@ function renderDashboard() {
 
       <footer>
         <p style="margin: 0;">Settings stockés dans <code>${escapeHtml(s.settings_path)}</code></p>
+        <div class="row" style="margin: 8px 0 12px;">
+          <button id="btn-open-logs" class="ghost" title="Ouvre le dossier des logs (utile pour signaler un bug)">📂 Ouvrir les logs</button>
+        </div>
         <p class="muted" style="margin: 6px 0 12px;">
           La croix de la fenêtre envoie l'app dans la zone de notification — utilise le bouton
           ci-dessous (ou clic droit sur l'icône système) pour quitter complètement.
@@ -344,6 +347,9 @@ function renderDashboard() {
   document.getElementById("btn-reload-hud")?.addEventListener("click", onReloadHud);
   document.getElementById("btn-copy-url")?.addEventListener("click", onCopyUrl);
   document.getElementById("btn-open-url")?.addEventListener("click", onOpenUrl);
+  document.getElementById("btn-open-logs")?.addEventListener("click", () => {
+    invoke("open_logs_folder").catch((err) => console.error(err));
+  });
   document.getElementById("btn-quit-app")?.addEventListener("click", onQuitApp);
 
   bindGeomListeners();

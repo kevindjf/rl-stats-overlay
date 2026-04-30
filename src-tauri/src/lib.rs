@@ -323,6 +323,15 @@ fn open_themes_folder() -> Result<(), String> {
     open_folder_in_explorer(&dir).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn open_logs_folder() -> Result<(), String> {
+    let dir = settings::logs_dir().map_err(|e| e.to_string())?;
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    open_folder_in_explorer(&dir).map_err(|e| e.to_string())
+}
+
 #[cfg(target_os = "windows")]
 fn open_folder_in_explorer(path: &std::path::Path) -> std::io::Result<()> {
     std::process::Command::new("explorer").arg(path).spawn()?;
@@ -449,14 +458,51 @@ fn install_tray(app: &AppHandle) -> tauri::Result<()> {
 // ---------- App bootstrap ----------------------------------------------------
 
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
+    // We keep the daily appender's flush guard alive for the entire process —
+    // dropping it would silently lose the tail of buffered log lines on exit.
+    // We `mem::forget` it because tracing's global subscriber lives until
+    // process shutdown anyway; trying to drop it cleanly after `tauri::run`
+    // returns would race with other globals.
+    let file_layer_and_guard = match settings::logs_dir() {
+        Ok(dir) => match std::fs::create_dir_all(&dir) {
+            Ok(()) => {
+                let appender =
+                    tracing_appender::rolling::daily(&dir, "rl-stats-overlay.log");
+                let (nb, guard) = tracing_appender::non_blocking(appender);
+                Some((nb, guard))
+            }
+            Err(err) => {
+                eprintln!("could not create logs dir {}: {err}", dir.display());
+                None
+            }
+        },
+        Err(err) => {
+            eprintln!("could not resolve logs dir: {err}");
+            None
+        }
+    };
+
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
+    let env_filter = || {
+        tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+    };
+    let stderr_layer = tracing_subscriber::fmt::layer()
         .with_target(false)
         .compact()
-        .init();
+        .with_filter(env_filter());
+    let registry = tracing_subscriber::registry().with(stderr_layer);
+    if let Some((writer, guard)) = file_layer_and_guard {
+        std::mem::forget(guard);
+        let file_layer = tracing_subscriber::fmt::layer()
+            .with_writer(writer)
+            .with_ansi(false)
+            .with_target(false)
+            .with_filter(env_filter());
+        registry.with(file_layer).init();
+    } else {
+        registry.init();
+    }
 
     // Load settings synchronously before Tauri starts so command handlers can
     // assume they're populated.
@@ -488,6 +534,7 @@ pub fn run() {
             quit_app,
             list_themes,
             open_themes_folder,
+            open_logs_folder,
             set_count_team_sizes,
         ])
         .setup(move |app| {
