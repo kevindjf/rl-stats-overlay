@@ -1,0 +1,11 @@
+{
+  "manifestVersion": 1,
+  "id": "redesigned",
+  "label": "Redesigned",
+  "description": "Big floating icons + bold values, no panel — RocketStats v2 style.",
+  "vars": [
+    { "key": "colorWin",         "label": "Wins / win-streak",    "group": "Colors", "spec": { "kind": "color", "default": "#5dd16f" } },
+    { "key": "colorLoss",        "label": "Losses / loss-streak", "group": "Colors", "spec": { "kind": "color", "default": "#ff5c5c" } },
+    { "key": "colorStreakIcon",  "label": "Streak icon (flame)",  "group": "Colors", "spec": { "kind": "color", "default": "#ffb13a" } }
+  ]
+}

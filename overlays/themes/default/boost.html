@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>RL Boost Overlay — Default</title>
+  <link rel="stylesheet" href="./boost.css" />
+</head>
+<body>
+  <!-- "Default" theme — direct port of RocketStats' classic Default theme:
+       a small black slab with a thin gray stroke, 3 colored text lines.
+       Lightest possible look, no gradient, no curve. -->
+  <div class="panel" role="img" aria-label="Session stats panel">
+    <span class="conn-dot" id="conn" title="Stats API connection"></span>
+    <div class="row streak-row">
+      <span class="label">Streak</span><span class="sep">:</span><span class="value" id="v-streak">+0</span>
+    </div>
+    <div class="row win-row">
+      <span class="label">Win</span><span class="sep">:</span><span class="value win" id="v-wins">0</span>
+    </div>
+    <div class="row loss-row">
+      <span class="label">Loss</span><span class="sep">:</span><span class="value loss" id="v-losses">0</span>
+    </div>
+  </div>
+
+  <script type="module" src="./boost.js"></script>
+</body>
+</html>

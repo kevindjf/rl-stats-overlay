@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>RL Boost Overlay — Template</title>
+  <link rel="stylesheet" href="./boost.css" />
+</head>
+<body>
+  <!--
+    REQUIRED CONTRACT
+    -----------------
+    The shared session loop (boost.js below) reads four element ids:
+      #v-streak  → streak number (e.g. "+3", "−2")
+      #v-wins    → wins count
+      #v-losses  → losses count
+      #conn      → connection-status dot (gets a `.ok` class when live)
+
+    Anything else (markup structure, classes, layout) is up to you.
+    Everything inside the panel rerenders when the user customizes
+    a colour or toggles "Show icons".
+  -->
+  <div class="panel" role="img" aria-label="Session stats panel">
+    <span class="conn-dot" id="conn" title="Stats API connection"></span>
+
+    <div class="card">
+      <span class="label">STRK</span>
+      <span class="value" id="v-streak">+0</span>
+    </div>
+    <div class="card">
+      <span class="label">WINS</span>
+      <span class="value win" id="v-wins">0</span>
+    </div>
+    <div class="card">
+      <span class="label">LOSS</span>
+      <span class="value loss" id="v-losses">0</span>
+    </div>
+  </div>
+
+  <script type="module" src="./boost.js"></script>
+</body>
+</html>

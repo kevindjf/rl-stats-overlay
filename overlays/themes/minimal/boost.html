@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>RL Boost Overlay — Minimal</title>
+  <link rel="stylesheet" href="./boost.css" />
+</head>
+<body>
+  <!-- Minimal theme: a single dark glass panel with 3 rows. Lighter and more
+       discreet than Circle, doesn't try to wrap the boost gauge — drop it
+       anywhere on screen. -->
+  <div class="panel" role="img" aria-label="Session stats panel">
+    <span class="conn-dot" id="conn" title="Stats API connection"></span>
+
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <defs>
+        <symbol id="ico-flame" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+        </symbol>
+        <symbol id="ico-trophy" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
+          <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
+          <path d="M4 22h16"/>
+          <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
+          <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
+          <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
+        </symbol>
+        <symbol id="ico-x" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor"
+                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 6 6 18"/>
+          <path d="m6 6 12 12"/>
+        </symbol>
+      </defs>
+    </svg>
+
+    <div class="row streak-row">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#ico-flame"/></svg>
+      <span class="label">STRK</span>
+      <span class="value" id="v-streak">+0</span>
+    </div>
+    <div class="row win-row">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#ico-trophy"/></svg>
+      <span class="label">WINS</span>
+      <span class="value win" id="v-wins">0</span>
+    </div>
+    <div class="row loss-row">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#ico-x"/></svg>
+      <span class="label">LOSS</span>
+      <span class="value loss" id="v-losses">0</span>
+    </div>
+  </div>
+
+  <script type="module" src="./boost.js"></script>
+</body>
+</html>

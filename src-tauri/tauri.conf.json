@@ -1,0 +1,72 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "RL Stats Overlay",
+  "version": "0.1.0",
+  "identifier": "com.kevindjf.rlstatsoverlay",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "settings",
+        "title": "RL Stats Overlay",
+        "url": "/",
+        "width": 760,
+        "height": 600,
+        "minWidth": 640,
+        "minHeight": 480,
+        "center": true,
+        "visible": true,
+        "decorations": true,
+        "resizable": true
+      },
+      {
+        "label": "hud",
+        "title": "RL HUD",
+        "url": "http://localhost:49124/overlays/boost.html",
+        "width": 400,
+        "height": 300,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": true,
+        "visible": false,
+        "shadow": false,
+        "focus": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi", "app"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Utility",
+    "shortDescription": "Rocket League stats overlays for OBS & in-game HUD",
+    "longDescription": "Display live wins, losses, and streak from your current Rocket League session. Powered by the official Psyonix Stats API — fully EAC-safe. Works as an OBS browser source and as a transparent in-game HUD.",
+    "publisher": "Kévin De Jesus Ferreira",
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "languages": ["English", "French"]
+      }
+    }
+  },
+  "plugins": {}
+}

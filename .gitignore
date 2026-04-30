@@ -1,0 +1,39 @@
+# Rust / Tauri
+/src-tauri/target/
+/src-tauri/Cargo.lock
+/src-tauri/gen/
+**/*.rs.bk
+
+# Frontend (Vite)
+/dist/
+/node_modules/
+/.vite/
+.bun
+bun.lockb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.iml
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Tauri build artifacts
+/src-tauri/WixTools/
+/release/
+
+# Misc
+*.log
+*.bak
+
+# Claude Code local state — absolute paths and per-user permission allowlists.
+# Never commit.
+.claude/

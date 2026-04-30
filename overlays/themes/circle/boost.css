@@ -1,0 +1,206 @@
+/* Inspired by Lyliya/RocketStats "Circle" theme (MIT) — see /NOTICES.md
+   3-card variant: each stat lives in its own panel with a concave right
+   edge that wraps around the in-game boost gauge.
+
+   Every value the user can edit from the settings UI is exposed as a CSS
+   custom property below. The defaults shipped here render the theme as
+   designed; settings overrides are applied at runtime by boost.js. */
+
+@font-face {
+  font-family: "Azonix";
+  src: url("/overlays/assets/fonts/Azonix.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* ---- Layout ---------------------------------------------------------- */
+  --card-w: 400px;
+  --card-h: 80px;
+  --card-gap: 12px;
+  /* Panel height is derived from card-h * 3 + gap * 2 + breathing margin. */
+  --panel-h: calc(var(--card-h) * 3 + var(--card-gap) * 2 + 21px);
+
+  /* Radius of the single circle whose arc forms the right edge of all 3
+     cards. Larger R → flatter, gentler curve (good for big in-game boost
+     gauges, e.g. low HUD scale on 1080p). Smaller R → tighter scoop (use
+     when the gauge looks small on screen, e.g. high resolution + low HUD
+     scale on 4K). MUST stay > panel_h/2 (= 132 with the defaults) or the
+     arc geometry breaks at the corners.
+     Note: the SVG path d="..." attributes in boost.html hard-code anchor
+     points that match R = 320. If you change this value you also need to
+     recompute those anchors using x(y) = Cx − √(R² − (y − Cy)²) — see
+     the geometry comment at the top of boost.html. */
+  --gauge-radius: 320px;
+
+  --label-pad-left: 28px;          /* icon-text block left inset */
+  --value-pad-right: 140px;        /* value right inset (clears the deepest scoop at x=270 in a 400px panel) */
+  --label-icon-gap: 14px;          /* space between icon and label text */
+
+  /* ---- Typography ------------------------------------------------------ */
+  --label-size: 26px;
+  --label-letter-spacing: 4px;
+  --value-size: 26px;
+  --value-letter-spacing: 1.5px;
+
+  /* ---- Icons ----------------------------------------------------------- */
+  --icon-size: 30px;
+  --show-icons: 1;                 /* set to 0 from JS to hide all icons */
+
+  /* ---- Colors ---------------------------------------------------------- */
+  /* Flat fills only — gradients add motion noise on top of an already-
+     animated game scene and force the eye to relayer the panel against
+     the background every frame. A single deep neutral with a thin tinted
+     border reads instantly without competing with the gauge or the field. */
+  --color-text: #ffffff;
+  --color-card: #16181d;                          /* solid panel fill */
+  --color-card-stroke: rgba(255, 255, 255, 0.10); /* hairline edge for definition */
+
+  --color-streak-icon: #ffb13a;    /* always orange (flame) */
+  --color-win:  #5dd16f;
+  --color-loss: #ff5c5c;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Azonix", "Orbitron", "Rajdhani", "Segoe UI", sans-serif;
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.panel {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: var(--card-w);
+  height: var(--panel-h);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--card-gap);
+  user-select: none;
+}
+
+.card {
+  position: relative;
+  height: var(--card-h);
+  flex-shrink: 0;
+}
+
+.card .bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Stretch the label container to the full card height and let flexbox do
+   the centering. Avoids the top:50%/translateY hack that misbehaves with
+   fonts whose cap-height differs from their em-box (Azonix is all-caps
+   geometric, its glyphs sit visually above geometric center). */
+.card .label {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--label-pad-left);
+  display: flex;
+  align-items: center;
+  gap: var(--label-icon-gap);
+}
+.card .label .icon {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  flex-shrink: 0;
+  opacity: var(--show-icons);
+  transition: opacity 0.2s ease;
+}
+.card .label .text {
+  font-size: var(--label-size);
+  letter-spacing: var(--label-letter-spacing);
+  line-height: 1;
+  /* Tiny optical nudge: Azonix sits a couple of px above geometric center
+     because there are no descenders. Pulls the label text down to match
+     the icon's optical center. Adjustable via this single value. */
+  transform: translateY(2px);
+}
+
+/* Hide-icon mode: collapse the icon's footprint so the label stays anchored
+   without leaving an empty slot. */
+:root:where([data-show-icons="false"]) .card .label .icon {
+  display: none;
+}
+
+.card .streak-label .icon { color: var(--color-streak-icon); }
+.card .win-label    .icon { color: var(--color-win); }
+.card .loss-label   .icon { color: var(--color-loss); }
+
+/* Same flex-stretch trick on the value side — keeps the right column
+   visually aligned with the label across font metrics changes. */
+.card .value {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: var(--value-pad-right);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: var(--value-size);
+  letter-spacing: var(--value-letter-spacing);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  /* Match the same optical nudge as the label so they share the same
+     visual baseline. */
+  transform: translateY(2px);
+}
+
+.card .value.win  { color: var(--color-win); }
+.card .value.loss { color: var(--color-loss); }
+
+.conn-dot {
+  position: absolute;
+  /* Sits inside the top card. With the new concave right edge, the card's
+     right boundary at y≈14px is x≈292 (in a 400px panel), so we anchor
+     the dot at right:130px to keep it visually tucked in the corner of
+     the card without bleeding past the arc into transparent space. */
+  top: 14px;
+  right: 130px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-loss);
+  box-shadow: 0 0 6px var(--color-loss), 0 0 2px rgba(0, 0, 0, 0.8);
+  z-index: 2;
+  opacity: 1;
+  transition: opacity 0.4s ease;
+  animation: alert-pulse 1.4s ease-in-out infinite;
+}
+.conn-dot.ok {
+  opacity: 0;
+  animation: none;
+}
+@keyframes alert-pulse {
+  0%, 100% { transform: scale(1);   box-shadow: 0 0 4px var(--color-loss), 0 0 2px rgba(0,0,0,0.8); }
+  50%      { transform: scale(1.4); box-shadow: 0 0 10px var(--color-loss), 0 0 2px rgba(0,0,0,0.8); }
+}
+
+/* The bump must preserve the optical-center translateY otherwise the
+   value slides back to geometric center for the duration of the
+   animation. */
+@keyframes bump {
+  0%   { transform: translateY(2px) scale(1); }
+  40%  { transform: translateY(2px) scale(1.18); }
+  100% { transform: translateY(2px) scale(1); }
+}
+.card .value.bump {
+  animation: bump 240ms ease-out;
+}

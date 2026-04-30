@@ -1,0 +1,13 @@
+{
+  "manifestVersion": 1,
+  "id": "default",
+  "label": "Default",
+  "description": "RocketStats classic — small black slab, three text rows. Lightest possible look.",
+  "vars": [
+    { "key": "colorPanelBg",     "label": "Panel background", "group": "Colors", "spec": { "kind": "color", "default": "#000000" } },
+    { "key": "colorPanelBorder", "label": "Panel border",     "group": "Colors", "spec": { "kind": "color", "default": "#c8c8c8" } },
+    { "key": "colorWin",         "label": "Wins value",       "group": "Colors", "spec": { "kind": "color", "default": "#5dd16f" } },
+    { "key": "colorLoss",        "label": "Losses value",     "group": "Colors", "spec": { "kind": "color", "default": "#ff5c5c" } },
+    { "key": "colorStreakIcon",  "label": "Streak value",     "group": "Colors", "spec": { "kind": "color", "default": "#ffb13a" } }
+  ]
+}

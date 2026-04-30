@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<title>RL Mock — Control Panel</title>
+<style>
+  :root {
+    --bg: #0e1117;
+    --panel: #161b25;
+    --border: rgba(255,255,255,0.08);
+    --text: #ffffff;
+    --muted: rgba(255,255,255,0.55);
+    --accent: #5dd16f;
+    --warn: #ffb13a;
+    --danger: #ff5c5c;
+    --info: #6cb0ff;
+  }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh;
+  }
+  body {
+    display: flex;
+    justify-content: center;
+    padding: 32px 16px;
+  }
+  .wrap {
+    width: 100%;
+    max-width: 720px;
+    display: grid;
+    gap: 16px;
+  }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+  }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .row + .row { margin-top: 12px; }
+  label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
+  input, select {
+    background: #0a0d13;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font: inherit;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--info); }
+  button {
+    background: #1f2633;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 16px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.08s, background 0.15s, border-color 0.15s;
+  }
+  button:hover { background: #283042; }
+  button:active { transform: scale(0.97); }
+  button.primary  { background: linear-gradient(135deg, #5dd16f, #3aa852); border-color: transparent; }
+  button.win      { background: linear-gradient(135deg, #5dd16f, #3aa852); border-color: transparent; }
+  button.loss     { background: linear-gradient(135deg, #ff5c5c, #c03d3d); border-color: transparent; }
+  button.warn     { background: linear-gradient(135deg, #ffb13a, #d68a1a); border-color: transparent; color: #1a1100; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #0a0d13;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+  .dot.ok { background: var(--accent); }
+  .links { font-size: 13px; color: var(--muted); }
+  .links a { color: var(--info); text-decoration: none; }
+  .links a:hover { text-decoration: underline; }
+  pre {
+    background: #0a0d13;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 12px;
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--muted);
+  }
+  .status-line { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div>
+      <h1>🎮 RL Mock — Control Panel</h1>
+      <div class="sub">Pilote un faux match pour tester les overlays sans Rocket League.</div>
+    </div>
+
+    <div class="panel">
+      <div class="status-line">
+        <div class="row" style="margin: 0;">
+          <span class="badge"><span class="dot" id="dot-ws"></span><span id="ws-status">déconnecté</span></span>
+          <span class="badge">Clients connectés : <span id="client-count">0</span></span>
+          <span class="badge">Match : <span id="match-state">aucun</span></span>
+        </div>
+        <div class="links">
+          <a href="/overlays/boost.html" target="_blank">🟢 ouvrir boost overlay</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <label for="name">Nom du joueur</label>
+        <input id="name" value="TestPlayer" />
+        <label for="team">Équipe</label>
+        <select id="team">
+          <option value="0">Blue</option>
+          <option value="1">Orange</option>
+        </select>
+        <button id="apply">Appliquer</button>
+      </div>
+      <div class="row" style="margin-top: 10px;">
+        <label for="theme">Theme</label>
+        <select id="theme">
+          <option value="circle">Circle</option>
+          <option value="default">Default (RocketStats)</option>
+          <option value="redesigned">Redesigned</option>
+          <option value="minimal">Minimal</option>
+        </select>
+        <span class="muted" style="font-size: 12px;">
+          Recharge l'overlay (Cmd+Shift+R) après changement
+        </span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin: 0 0 12px;">Cycle de match</h3>
+      <div class="row">
+        <button class="primary" id="start">▶ Démarrer un match</button>
+        <button class="win"     id="win" disabled>🏆 Finir — Win</button>
+        <button class="loss"    id="loss" disabled>💀 Finir — Loss</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin: 0 0 12px;">Stats live (joueur)</h3>
+      <div class="stats-grid">
+        <button data-stat="Goals">⚽ +1 Goal</button>
+        <button data-stat="Shots">🎯 +1 Shot</button>
+        <button data-stat="Saves">🛡 +1 Save</button>
+        <button data-stat="Assists">🤝 +1 Assist</button>
+        <button data-stat="Demos">💥 +1 Demo</button>
+        <button class="warn" data-stat="OppGoal">😬 But adverse</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin: 0 0 12px;">État serveur</h3>
+      <pre id="status-dump">…</pre>
+    </div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const dot = $('dot-ws');
+const wsStatus = $('ws-status');
+const matchState = $('match-state');
+const clientCount = $('client-count');
+const dump = $('status-dump');
+const btnStart = $('start');
+const btnWin = $('win');
+const btnLoss = $('loss');
+
+const send = async (action, ...args) => {
+  try {
+    const res = await fetch('/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, args }),
+    });
+    return await res.json();
+  } catch (e) {
+    console.error(e);
+    return { ok: false };
+  }
+};
+
+const refresh = async () => {
+  const s = await send('status');
+  if (!s.ok) return;
+  clientCount.textContent = s.clients;
+  matchState.textContent = s.inMatch ? 'en cours' : 'aucun';
+  btnStart.disabled = s.inMatch;
+  btnWin.disabled = !s.inMatch;
+  btnLoss.disabled = !s.inMatch;
+  dump.textContent = JSON.stringify(s, null, 2);
+};
+
+// Heartbeat WS to indicate the server is alive (visual only).
+const probe = () => {
+  try {
+    const probeWs = new WebSocket('ws://' + location.host);
+    probeWs.onopen = () => { dot.classList.add('ok'); wsStatus.textContent = 'connecté'; probeWs.close(); };
+    probeWs.onerror = () => { dot.classList.remove('ok'); wsStatus.textContent = 'déconnecté'; };
+  } catch (_) {}
+};
+
+$('apply').addEventListener('click', async () => {
+  await send('setName', $('name').value);
+  await send('setTeam', parseInt($('team').value, 10));
+  await send('setTheme', $('theme').value);
+  refresh();
+});
+
+// Live theme switch — change without clicking Apply.
+$('theme').addEventListener('change', async () => {
+  await send('setTheme', $('theme').value);
+});
+btnStart.addEventListener('click', async () => { await send('startMatch');   refresh(); });
+btnWin  .addEventListener('click', async () => { await send('endMatch', true);  refresh(); });
+btnLoss .addEventListener('click', async () => { await send('endMatch', false); refresh(); });
+
+document.querySelectorAll('button[data-stat]').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const stat = btn.dataset.stat;
+    if (stat === 'OppGoal') await send('oppGoal');
+    else                    await send('addStat', stat, 1);
+    refresh();
+  });
+});
+
+probe();
+refresh();
+setInterval(refresh, 1000);
+setInterval(probe, 5000);
+</script>
+</body>
+</html>

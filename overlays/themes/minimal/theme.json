@@ -1,0 +1,15 @@
+{
+  "manifestVersion": 1,
+  "id": "minimal",
+  "label": "Minimal",
+  "description": "Single dark glass panel with 3 rows — discreet, drops anywhere on screen.",
+  "vars": [
+    { "key": "colorPanelBg",     "label": "Panel background",     "group": "Colors", "spec": { "kind": "color", "default": "#0f121a" } },
+    { "key": "colorPanelBorder", "label": "Panel border",         "group": "Colors", "spec": { "kind": "color", "default": "#1e2230" } },
+    { "key": "colorWin",         "label": "Wins / win-streak",    "group": "Colors", "spec": { "kind": "color", "default": "#5dd16f" } },
+    { "key": "colorLoss",        "label": "Losses / loss-streak", "group": "Colors", "spec": { "kind": "color", "default": "#ff5c5c" } },
+    { "key": "colorStreakIcon",  "label": "Streak icon (flame)",  "group": "Colors", "spec": { "kind": "color", "default": "#ffb13a" } },
+
+    { "key": "showIcons",        "label": "Show icons",           "group": "Layout", "spec": { "kind": "boolean", "default": true } }
+  ]
+}
