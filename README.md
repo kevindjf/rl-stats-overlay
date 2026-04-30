@@ -22,13 +22,25 @@
 ## 🚀 Installation (3 minutes, zéro ligne de commande)
 
 1. Va sur la page [**Releases**](https://github.com/kevindjf/rl-stats-overlay/releases/latest)
-2. Télécharge `RLStatsOverlay-Setup-x.y.z-x64-setup.exe`
+2. Télécharge `RL Stats Overlay_x.y.z_x64-setup.exe`
 3. Double-clique pour lancer l'installation
-4. ⚠️ Si Windows affiche un avertissement SmartScreen : clique sur **Plus d'infos** → **Exécuter quand même** *(normal, l'app n'est pas encore code-signée — voir [Troubleshooting](docs/troubleshooting.md))*
-5. À la première ouverture, suis le **wizard de configuration** :
+4. À la première ouverture, suis le **wizard de configuration** :
    - Sélectionne ton installation Rocket League (détectée automatiquement)
    - Tape ton pseudo en jeu (exactement comme il s'affiche en match)
    - C'est fini — **redémarre Rocket League** pour activer la Stats API
+
+> ### ⚠️ Windows affiche "Microsoft Defender SmartScreen empêché le démarrage"
+>
+> **C'est normal et attendu.** L'app n'est pas (encore) signée avec un certificat
+> de code-signing payant — Windows met cet avertissement par défaut sur tout
+> binaire d'un éditeur qu'il ne connaît pas, indépendamment du contenu.
+>
+> **Pour la passer** : sur l'écran SmartScreen, clique sur **Plus d'infos**, puis
+> sur le bouton **Exécuter quand même** qui apparaît.
+>
+> Le code source est entièrement public dans ce dépôt et tu peux soumettre
+> le `.exe` sur [VirusTotal](https://www.virustotal.com) si tu veux une analyse
+> indépendante. Voir [Troubleshooting](docs/troubleshooting.md#windows-smartscreen-affiche-windows-a-protégé-votre-pc) pour plus de détails.
 
 ## 🟢 Utilisation HUD in-game
 

@@ -23,7 +23,7 @@ Vérifie dans cet ordre :
 Ouvre `<dossier RL>\TAGame\Config\DefaultStatsAPI.ini` et vérifie qu'il contient :
 
 ```ini
-[/Script/TAGame.StatsAPIClient]
+[TAGame.MatchStatsExporter_TA]
 PacketSendRate=30
 Port=49123
 ```
