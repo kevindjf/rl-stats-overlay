@@ -1,5 +1,7 @@
 # 🎮 RL Stats Overlay
 
+**🇫🇷 Français** · [🇬🇧 English](README.en.md)
+
 > **Overlay Rocket League pour OBS et HUD in-game.** Wins, losses et streak de session, en temps réel. Compatible Easy Anti-Cheat — utilise uniquement la **Stats API officielle Psyonix**, aucune injection.
 
 <p align="center">
