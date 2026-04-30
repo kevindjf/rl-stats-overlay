@@ -6,6 +6,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 
+import { type LangPref, setLanguage, t } from "./i18n";
+
 // ----- Types ----------------------------------------------------------------
 
 interface Session {
@@ -34,6 +36,7 @@ interface StateSnapshot {
   hud_w: number;
   hud_h: number;
   count_team_sizes: number[];
+  language: LangPref;
 }
 
 interface DetectedInstall {
@@ -190,6 +193,12 @@ async function refresh(): Promise<StateSnapshot> {
   return currentState;
 }
 
+// Resolve UI language before the first render so labels start in the right
+// locale. We read settings.language directly (not via refresh→get_state)
+// to avoid a flash of FR before the snapshot lands.
+const bootSnapshot = await invoke<StateSnapshot>("get_state").catch(() => null);
+setLanguage(bootSnapshot?.language ?? "auto");
+
 await loadThemes();
 await refresh();
 
@@ -243,10 +252,10 @@ function mountUpdateBanner(version: string, onInstall: () => Promise<void>): voi
     "font-size: 13px",
   ].join(";");
   banner.innerHTML = /* html */ `
-    <span>🔔 Nouvelle version <strong>${escapeHtml(version)}</strong> disponible</span>
+    <span>${t("update.banner", { version: escapeHtml(version) })}</span>
     <span style="display:flex; gap:8px;">
-      <button id="btn-update-install" class="primary" style="padding: 4px 12px;">Installer</button>
-      <button id="btn-update-dismiss" class="ghost" style="padding: 4px 12px; color: white; border-color: rgba(255,255,255,0.4);">Plus tard</button>
+      <button id="btn-update-install" class="primary" style="padding: 4px 12px;">${t("update.install")}</button>
+      <button id="btn-update-dismiss" class="ghost" style="padding: 4px 12px; color: white; border-color: rgba(255,255,255,0.4);">${t("update.dismiss")}</button>
     </span>
   `;
   document.body.prepend(banner);
@@ -254,7 +263,7 @@ function mountUpdateBanner(version: string, onInstall: () => Promise<void>): voi
     const btn = banner.querySelector("#btn-update-install") as HTMLButtonElement | null;
     if (btn) {
       btn.disabled = true;
-      btn.textContent = "Téléchargement…";
+      btn.textContent = t("update.downloading");
     }
     try {
       await onInstall();
@@ -262,7 +271,7 @@ function mountUpdateBanner(version: string, onInstall: () => Promise<void>): voi
       console.error("update install failed:", err);
       if (btn) {
         btn.disabled = false;
-        btn.textContent = "Réessayer";
+        btn.textContent = t("update.retry");
       }
     }
   });
@@ -285,33 +294,32 @@ function renderDashboard() {
       <header style="display:flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px;">
         <div>
           <h1>🎮 RL Stats Overlay</h1>
-          <p class="subtitle">Powered by the official Rocket League Stats API. Fully EAC-safe.</p>
+          <p class="subtitle">${t("header.subtitle")}</p>
         </div>
         <span class="badge"><span class="dot ${s.connected ? "ok" : ""}" id="conn-dot"></span>${
-          s.connected ? "Connecté au jeu" : "En attente du jeu"
+          s.connected ? t("header.connected") : t("header.waiting")
         }</span>
       </header>
 
       <section class="panel">
         <div class="panel-header">
-          <h2>Session en cours</h2>
-          <button class="ghost" id="btn-reset">Reset</button>
+          <h2>${t("session.title")}</h2>
+          <button class="ghost" id="btn-reset">${t("session.reset")}</button>
         </div>
         <div class="session">
-          <div class="stat win"><div class="num">${s.session.wins}</div><div class="lbl">Wins</div></div>
-          <div class="stat loss"><div class="num">${s.session.losses}</div><div class="lbl">Losses</div></div>
+          <div class="stat win"><div class="num">${s.session.wins}</div><div class="lbl">${t("session.wins")}</div></div>
+          <div class="stat loss"><div class="num">${s.session.losses}</div><div class="lbl">${t("session.losses")}</div></div>
           <div class="stat streak ${s.session.streak > 0 ? "win" : s.session.streak < 0 ? "loss" : ""}">
             <div class="num">${streakLabel}</div>
-            <div class="lbl">Streak</div>
+            <div class="lbl">${t("session.streak")}</div>
           </div>
         </div>
         <p class="muted" style="margin-top: 12px; font-size: 12px;">
-          Records de la session — meilleure série de wins : <strong>${s.session.best_win_streak}</strong> ·
-          pire série de losses : <strong>${s.session.best_loss_streak}</strong>
+          ${t("session.records", { best_win: s.session.best_win_streak, best_loss: s.session.best_loss_streak })}
         </p>
 
         <div class="team-size-filter" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border, rgba(255,255,255,0.08));">
-          <label style="font-weight: 600; font-size: 13px;">Compter les matchs en :</label>
+          <label style="font-weight: 600; font-size: 13px;">${t("session.filter.label")}</label>
           <div class="row" style="gap: 14px; margin-top: 6px;">
             ${[1, 2, 3, 4]
               .map(
@@ -326,47 +334,40 @@ function renderDashboard() {
               .join("")}
           </div>
           <p class="muted" style="margin-top: 8px; font-size: 11px; line-height: 1.4;">
-            Ne distingue pas Ranked et Casual : l'API officielle de Rocket League n'expose pas le mode
-            de matchmaking. Le filtre ci-dessus se base uniquement sur la <strong>taille des équipes</strong>
-            détectée en début de match.
+            ${t("session.filter.note")}
           </p>
         </div>
       </section>
 
       <section class="panel">
-        <h2>Joueur</h2>
+        <h2>${t("player.title")}</h2>
         <div class="row">
           <div style="flex: 1;">
-            <label for="player-input">Pseudo en jeu</label>
-            <input type="text" id="player-input" value="${escapeHtml(s.player_name)}" placeholder="Ton pseudo Rocket League" />
+            <label for="player-input">${t("player.label")}</label>
+            <input type="text" id="player-input" value="${escapeHtml(s.player_name)}" placeholder="${escapeHtml(t("player.placeholder"))}" />
           </div>
-          <button class="primary" id="btn-save-name" style="margin-top: 18px;">Enregistrer</button>
+          <button class="primary" id="btn-save-name" style="margin-top: 18px;">${t("player.save")}</button>
         </div>
-        ${
-          s.primary_id
-            ? `<p class="muted" style="margin-top: 8px; font-size: 11px;">Identifiant stable capturé : <code>${escapeHtml(
-                s.primary_id,
-              )}</code></p>`
-            : `<p class="muted" style="margin-top: 8px; font-size: 11px;">L'identifiant stable sera capturé automatiquement au prochain match.</p>`
-        }
+        <p class="muted" style="margin-top: 8px; font-size: 11px;">
+          ${s.primary_id
+            ? t("player.idCaptured", { id: escapeHtml(s.primary_id) })
+            : t("player.idPending")}
+        </p>
       </section>
 
       <section class="panel">
-        <h2>HUD en jeu</h2>
-        <p class="muted" style="margin-top: 0;">
-          Affiche l'overlay en fenêtre transparente par-dessus Rocket League. Fonctionne uniquement en
-          <strong>plein écran fenêtré (borderless)</strong>.
-        </p>
+        <h2>${t("hud.title")}</h2>
+        <p class="muted" style="margin-top: 0;">${t("hud.note")}</p>
         <div class="row" style="margin-top: 12px;">
           <button class="primary" id="btn-toggle-hud">${
-            s.hud_visible ? "🟢 HUD activé — masquer" : "▶ Afficher le HUD"
+            s.hud_visible ? t("hud.hide") : t("hud.show")
           }</button>
-          <button id="btn-reload-hud" title="Recharge le HUD pour forcer un fetch frais des assets">🔄 Recharger</button>
+          <button id="btn-reload-hud" title="${escapeHtml(t("hud.reloadTitle"))}">${t("hud.reload")}</button>
         </div>
 
         <div class="hud-geom">
           <div class="row" style="gap: 16px; align-items: flex-end;">
-            <label class="step-picker">Pas
+            <label class="step-picker">${t("hud.step")}
               <select id="geom-step">
                 <option value="1">1 px</option>
                 <option value="5" selected>5 px</option>
@@ -386,27 +387,33 @@ function renderDashboard() {
       </section>
 
       <section class="panel">
-        <h2>OBS Browser Source</h2>
-        <p class="muted" style="margin-top: 0;">Colle cette URL dans une <em>Browser Source</em> OBS, dimensions <code>400 × 300</code>.</p>
+        <h2>${t("obs.title")}</h2>
+        <p class="muted" style="margin-top: 0;">${t("obs.note")}</p>
         <div class="url-pill" id="url-pill">${escapeHtml(obsUrl)}</div>
         <div class="row" style="margin-top: 12px;">
-          <button class="primary" id="btn-copy-url" ${s.http_port === 0 ? "disabled" : ""}>📋 Copier l'URL</button>
-          <button id="btn-open-url" ${s.http_port === 0 ? "disabled" : ""}>👁 Aperçu navigateur</button>
+          <button class="primary" id="btn-copy-url" ${s.http_port === 0 ? "disabled" : ""}>${t("obs.copy")}</button>
+          <button id="btn-open-url" ${s.http_port === 0 ? "disabled" : ""}>${t("obs.preview")}</button>
         </div>
       </section>
 
       ${renderThemeSection(s)}
 
       <footer>
-        <p style="margin: 0;">Settings stockés dans <code>${escapeHtml(s.settings_path)}</code></p>
-        <div class="row" style="margin: 8px 0 12px;">
-          <button id="btn-open-logs" class="ghost" title="Ouvre le dossier des logs (utile pour signaler un bug)">📂 Ouvrir les logs</button>
+        <p style="margin: 0;">${t("footer.settingsAt", { path: escapeHtml(s.settings_path) })}</p>
+        <div class="row" style="margin: 8px 0 12px; align-items: center; gap: 10px;">
+          <button id="btn-open-logs" class="ghost" title="${escapeHtml(t("footer.openLogsTitle"))}">${t("footer.openLogs")}</button>
+          <label style="display:flex; align-items:center; gap:6px; font-size: 12px;">${t("footer.language")}
+            <select id="lang-select">
+              <option value="auto" ${s.language === "auto" ? "selected" : ""}>${t("footer.langAuto")}</option>
+              <option value="fr" ${s.language === "fr" ? "selected" : ""}>${t("footer.langFr")}</option>
+              <option value="en" ${s.language === "en" ? "selected" : ""}>${t("footer.langEn")}</option>
+            </select>
+          </label>
         </div>
         <p class="muted" style="margin: 6px 0 12px;">
-          La croix de la fenêtre envoie l'app dans la zone de notification — utilise le bouton
-          ci-dessous (ou clic droit sur l'icône système) pour quitter complètement.
+          ${t("footer.trayHint")}
         </p>
-        <button id="btn-quit-app" class="ghost">⏻ Quitter l'application</button>
+        <button id="btn-quit-app" class="ghost">${t("footer.quit")}</button>
       </footer>
     </main>
   `;
@@ -420,6 +427,12 @@ function renderDashboard() {
   document.getElementById("btn-open-url")?.addEventListener("click", onOpenUrl);
   document.getElementById("btn-open-logs")?.addEventListener("click", () => {
     invoke("open_logs_folder").catch((err) => console.error(err));
+  });
+  document.getElementById("lang-select")?.addEventListener("change", async (e) => {
+    const lang = (e.target as HTMLSelectElement).value as LangPref;
+    await invoke("set_language", { language: lang });
+    setLanguage(lang);
+    await refresh();
   });
   document.getElementById("btn-quit-app")?.addEventListener("click", onQuitApp);
 
@@ -502,17 +515,17 @@ function renderThemeSection(s: StateSnapshot): string {
   return /* html */ `
     <section class="panel">
       <div class="panel-header">
-        <h2>Theme</h2>
+        <h2>${t("theme.title")}</h2>
         <div class="row" style="gap: 8px;">
-          <button class="ghost" id="btn-open-themes" title="Ouvre le dossier où déposer un thème custom">📁 Dossier des thèmes</button>
-          <button class="ghost" id="btn-refresh-themes" title="Rescanne le dossier après un drag-drop">🔄 Rafraîchir</button>
-          <button class="ghost" id="btn-reset-theme">Reset all overrides</button>
+          <button class="ghost" id="btn-open-themes" title="${escapeHtml(t("theme.openFolderTitle"))}">${t("theme.openFolder")}</button>
+          <button class="ghost" id="btn-refresh-themes" title="${escapeHtml(t("theme.refreshTitle"))}">${t("theme.refresh")}</button>
+          <button class="ghost" id="btn-reset-theme">${t("theme.resetAll")}</button>
         </div>
       </div>
       <p class="muted" style="margin-top: 0;">${escapeHtml(def.description)}</p>
 
       <div class="row" style="margin-bottom: 16px;">
-        <label for="theme-select" style="min-width: 80px;">Active theme</label>
+        <label for="theme-select" style="min-width: 80px;">${t("theme.activeLabel")}</label>
         <select id="theme-select">${themeOptions}</select>
       </div>
 
@@ -523,9 +536,9 @@ function renderThemeSection(s: StateSnapshot): string {
 
 function renderThemeVarControl(v: ThemeVarDef, current: string | number | boolean | undefined): string {
   const overridden = current !== undefined;
-  const label = `${escapeHtml(v.label)}${overridden ? " <span class=\"override-dot\" title=\"Override active\"></span>" : ""}`;
+  const label = `${escapeHtml(v.label)}${overridden ? ` <span class="override-dot" title="${escapeHtml(t("theme.varOverride"))}"></span>` : ""}`;
 
-  const resetBtn = `<button class="var-reset" data-key="${v.key}" title="Reset to default" ${overridden ? "" : "disabled"}>↺</button>`;
+  const resetBtn = `<button class="var-reset" data-key="${v.key}" title="${escapeHtml(t("theme.varReset"))}" ${overridden ? "" : "disabled"}>↺</button>`;
 
   switch (v.spec.kind) {
     case "color": {
@@ -585,14 +598,14 @@ function bindThemeListeners() {
     try {
       await invoke("open_themes_folder");
     } catch (err) {
-      alert(`Impossible d'ouvrir le dossier des thèmes: ${err}`);
+      alert(t("theme.openFolderError", { err: String(err) }));
     }
   });
 
   // Rescan bundled + user themes after a drag-drop.
   document.getElementById("btn-refresh-themes")?.addEventListener("click", async () => {
     await loadThemes();
-    flashButton("btn-refresh-themes", "✓ Rafraîchi");
+    flashButton("btn-refresh-themes", t("theme.refreshed"));
     await refresh();
   });
 
@@ -600,7 +613,7 @@ function bindThemeListeners() {
   document.getElementById("btn-reset-theme")?.addEventListener("click", async () => {
     const def = themeById(currentState?.theme ?? "");
     if (!def) return;
-    if (!confirm("Réinitialiser tous les réglages de ce thème ?")) return;
+    if (!confirm(t("theme.resetConfirm"))) return;
     for (const v of def.vars) {
       await invoke("set_theme_var", { key: v.key, value: null });
     }
@@ -656,14 +669,14 @@ async function onSaveName() {
   const input = document.getElementById("player-input") as HTMLInputElement | null;
   const name = input?.value.trim() || "";
   if (!name) {
-    return alert("Renseigne un pseudo avant d'enregistrer.");
+    return alert(t("player.savePrompt"));
   }
   await invoke("set_player_name", { name });
   await refresh();
 }
 
 async function onResetSession() {
-  if (!confirm("Réinitialiser la session ? (les wins/losses repartent à zéro)")) return;
+  if (!confirm(t("session.resetConfirm"))) return;
   await invoke("reset_session");
   await refresh();
 }
@@ -690,7 +703,7 @@ async function onToggleHud() {
 
 async function onReloadHud() {
   await invoke("reload_hud");
-  flashButton("btn-reload-hud", "✓ Rechargé");
+  flashButton("btn-reload-hud", t("hud.reloaded"));
 }
 
 async function onQuitApp() {
@@ -701,7 +714,7 @@ async function onCopyUrl() {
   const url = currentState?.overlay_url;
   if (!url) return;
   await writeText(url);
-  flashButton("btn-copy-url", "✓ Copié");
+  flashButton("btn-copy-url", t("obs.copied"));
 }
 
 async function onOpenUrl() {
@@ -735,21 +748,21 @@ async function renderWizard() {
     root.innerHTML = /* html */ `
       <main class="wizard">
         ${dots}
-        <h1>🎮 Bienvenue dans RL Stats Overlay</h1>
-        <p class="subtitle">Configurons ton installation Rocket League. Ça prend 30 secondes.</p>
+        <h1>${t("wizard.welcome")}</h1>
+        <p class="subtitle">${t("wizard.welcomeSub")}</p>
 
         <section class="panel">
-          <h2>1. Installation détectée</h2>
+          <h2>${t("wizard.installTitle")}</h2>
           ${
             detectedInstalls.length === 0
-              ? `<p class="muted">Aucune installation détectée automatiquement. Tu peux indiquer le dossier manuellement.</p>`
+              ? `<p class="muted">${t("wizard.notDetected")}</p>`
               : detectedInstalls
                   .map(
                     (d, i) => `
             <div class="install-card" data-idx="${i}">
               <div style="font-size: 24px;">${d.platform === "Steam" ? "🕹" : "🎮"}</div>
               <div style="flex: 1;">
-                <div class="platform">Rocket League — ${d.platform}</div>
+                <div class="platform">${t("wizard.installLabel", { platform: d.platform })}</div>
                 <div class="path">${escapeHtml(d.install_dir)}</div>
               </div>
               <div style="color: var(--accent); font-weight: 800;">→</div>
@@ -759,7 +772,7 @@ async function renderWizard() {
                   .join("")
           }
           <div class="row" style="margin-top: 12px;">
-            <button id="btn-browse">📂 Indiquer un dossier manuellement</button>
+            <button id="btn-browse">${t("wizard.browse")}</button>
           </div>
         </section>
       </main>
@@ -778,38 +791,35 @@ async function renderWizard() {
     root.innerHTML = /* html */ `
       <main class="wizard">
         ${dots}
-        <h1>2. Activation de la Stats API</h1>
+        <h1>${t("wizard.apiTitle")}</h1>
 
         <section class="panel">
           ${
             lastPatchOutcome?.already_correct
-              ? `<div class="alert success">La Stats API était déjà activée correctement. Aucune modification nécessaire.</div>`
-              : `<div class="alert success">Configuration appliquée à <code>${escapeHtml(
-                  chosenIniPath || "?",
-                )}</code>${
+              ? `<div class="alert success">${t("wizard.apiAlreadyOk")}</div>`
+              : `<div class="alert success">${t("wizard.apiApplied", { path: escapeHtml(chosenIniPath || "?") })}${
                   lastPatchOutcome?.backup_path
-                    ? `<br/>Sauvegarde de l'ancien fichier dans <code>${escapeHtml(lastPatchOutcome.backup_path)}</code>.`
+                    ? `<br/>${t("wizard.apiBackup", { path: escapeHtml(lastPatchOutcome.backup_path) })}`
                     : ""
                 }</div>`
           }
           <p class="muted" style="margin-top: 12px;">
-            La Stats API est une fonctionnalité <strong>officielle Psyonix</strong>, compatible Easy Anti-Cheat.
-            Aucune injection dans le jeu, uniquement la lecture de l'API qu'il expose lui-même.
+            ${t("wizard.apiNote1")}
           </p>
           <p class="muted" style="margin-top: 12px;">
-            ⚠️ <strong>Redémarre Rocket League</strong> si le jeu était lancé pour que le changement prenne effet.
+            ${t("wizard.apiNote2")}
           </p>
         </section>
 
         <section class="panel">
-          <h2>3. Ton pseudo en jeu</h2>
-          <label for="wizard-name">Tape exactement le pseudo affiché en match (sensible aux espaces)</label>
-          <input type="text" id="wizard-name" placeholder="ex: Pooley" autofocus />
+          <h2>${t("wizard.playerTitle")}</h2>
+          <label for="wizard-name">${t("wizard.playerLabel")}</label>
+          <input type="text" id="wizard-name" placeholder="${escapeHtml(t("wizard.playerPlaceholder"))}" autofocus />
         </section>
 
         <div class="row">
           <div class="spacer"></div>
-          <button class="primary" id="btn-finish">Terminer ▶</button>
+          <button class="primary" id="btn-finish">${t("wizard.finish")}</button>
         </div>
       </main>
     `;
@@ -825,7 +835,7 @@ async function onBrowse() {
   const picked = await openDialog({
     multiple: false,
     directory: true,
-    title: "Sélectionne le dossier d'installation de Rocket League",
+    title: t("wizard.browseTitle"),
   });
   if (!picked || typeof picked !== "string") return;
   chosenIniPath = picked;
@@ -839,9 +849,7 @@ async function applyPatch() {
     lastPatchOutcome = await invoke<PatchOutcome>("patch_ini", { path: chosenIniPath });
     await renderWizard();
   } catch (err) {
-    alert(
-      `Impossible de modifier la configuration de la Stats API :\n${err}\n\nVérifie que tu as les droits d'écriture sur le dossier d'installation.`,
-    );
+    alert(t("wizard.patchError", { err: String(err) }));
     wizardStep = 1;
     await renderWizard();
   }
@@ -851,7 +859,7 @@ async function onFinishWizard() {
   const input = document.getElementById("wizard-name") as HTMLInputElement | null;
   const name = input?.value.trim() || "";
   if (!name) {
-    return alert("Renseigne ton pseudo en jeu avant de continuer.");
+    return alert(t("wizard.finishPrompt"));
   }
   await invoke("set_player_name", { name });
   await invoke("complete_setup");
@@ -861,7 +869,7 @@ async function onFinishWizard() {
 // ----- Helpers --------------------------------------------------------------
 
 function streakDisplay(streak: number): string {
-  if (streak === 0) return "—";
+  if (streak === 0) return t("session.streakEmpty");
   if (streak > 0) return `🔥 W${streak}`;
   return `❄️ L${-streak}`;
 }

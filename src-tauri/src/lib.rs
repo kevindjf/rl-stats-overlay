@@ -53,6 +53,8 @@ struct StateSnapshot {
     hud_h: u32,
     /// Team sizes (1..=4) currently counted toward the W/L tally.
     count_team_sizes: Vec<u8>,
+    /// UI language preference: "auto" | "fr" | "en".
+    language: String,
 }
 
 #[tauri::command]
@@ -102,7 +104,19 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
         hud_w,
         hud_h,
         count_team_sizes: settings.count_team_sizes,
+        language: settings.language,
     }
+}
+
+#[tauri::command]
+fn set_language(language: String, state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    let lang = match language.as_str() {
+        "auto" | "fr" | "en" => language,
+        _ => return Err(format!("unsupported language: {language}")),
+    };
+    state.settings.lock().language = lang;
+    state.request_save_settings();
+    Ok(())
 }
 
 #[tauri::command]
@@ -538,6 +552,7 @@ pub fn run() {
             open_themes_folder,
             open_logs_folder,
             set_count_team_sizes,
+            set_language,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

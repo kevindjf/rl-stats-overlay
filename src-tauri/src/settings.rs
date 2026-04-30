@@ -53,6 +53,10 @@ pub struct Settings {
     /// session to "3v3 only" / "2v2 only" etc. Default: count everything.
     #[serde(default = "default_team_sizes")]
     pub count_team_sizes: Vec<u8>,
+    /// UI language: "auto" (use navigator.language), "fr", or "en".
+    /// We treat any unrecognized value as "auto" on the frontend.
+    #[serde(default = "default_language")]
+    pub language: String,
 }
 
 fn default_team_sizes() -> Vec<u8> {
@@ -61,6 +65,10 @@ fn default_team_sizes() -> Vec<u8> {
 
 fn default_theme() -> String {
     "circle".into()
+}
+
+fn default_language() -> String {
+    "auto".into()
 }
 
 impl Settings {
