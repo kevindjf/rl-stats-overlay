@@ -2,7 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 
 // ----- Types ----------------------------------------------------------------
 
@@ -191,6 +193,15 @@ async function refresh(): Promise<StateSnapshot> {
 await loadThemes();
 await refresh();
 
+// Background update check. We delay by 3s so it doesn't compete with the
+// initial render + WS handshake. The banner mounts itself if a release is
+// found; otherwise this stays silent.
+setTimeout(() => {
+  checkForUpdates().catch((err) =>
+    console.warn("update check failed:", err),
+  );
+}, 3000);
+
 // Live updates pushed by the Rust side.
 listen("rlstats://connected", () => refresh());
 listen("rlstats://session-changed", () => refresh());
@@ -199,6 +210,66 @@ listen("rlstats://session-changed", () => refresh());
 setInterval(() => {
   refresh().catch(() => {});
 }, 2000);
+
+// ----- Updater --------------------------------------------------------------
+
+async function checkForUpdates(): Promise<void> {
+  const update = await checkForUpdate();
+  if (!update) return;
+  mountUpdateBanner(update.version, async () => {
+    await update.downloadAndInstall();
+    await relaunch();
+  });
+}
+
+function mountUpdateBanner(version: string, onInstall: () => Promise<void>): void {
+  if (document.getElementById("update-banner")) return;
+  const banner = document.createElement("div");
+  banner.id = "update-banner";
+  banner.style.cssText = [
+    "position: fixed",
+    "top: 0",
+    "left: 0",
+    "right: 0",
+    "z-index: 9999",
+    "padding: 10px 16px",
+    "background: #2563eb",
+    "color: white",
+    "display: flex",
+    "align-items: center",
+    "justify-content: space-between",
+    "gap: 12px",
+    "box-shadow: 0 2px 8px rgba(0,0,0,0.25)",
+    "font-size: 13px",
+  ].join(";");
+  banner.innerHTML = /* html */ `
+    <span>🔔 Nouvelle version <strong>${escapeHtml(version)}</strong> disponible</span>
+    <span style="display:flex; gap:8px;">
+      <button id="btn-update-install" class="primary" style="padding: 4px 12px;">Installer</button>
+      <button id="btn-update-dismiss" class="ghost" style="padding: 4px 12px; color: white; border-color: rgba(255,255,255,0.4);">Plus tard</button>
+    </span>
+  `;
+  document.body.prepend(banner);
+  banner.querySelector("#btn-update-install")?.addEventListener("click", async () => {
+    const btn = banner.querySelector("#btn-update-install") as HTMLButtonElement | null;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Téléchargement…";
+    }
+    try {
+      await onInstall();
+    } catch (err) {
+      console.error("update install failed:", err);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Réessayer";
+      }
+    }
+  });
+  banner.querySelector("#btn-update-dismiss")?.addEventListener("click", () => {
+    banner.remove();
+  });
+}
 
 // ----- Dashboard view -------------------------------------------------------
 

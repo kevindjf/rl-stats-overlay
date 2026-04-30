@@ -68,5 +68,15 @@
       }
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/kevindjf/rl-stats-overlay/releases/latest/download/latest.json"
+      ],
+      "pubkey": "REPLACE_ME_WITH_OUTPUT_OF_TAURI_SIGNER_GENERATE",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
 }
