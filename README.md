@@ -26,16 +26,17 @@
   - 📺 **Source navigateur OBS** — pour l'afficher sur ton stream
 - **Plusieurs thèmes** prêts à l'emploi (et tu peux créer le tien — voir [le guide designer](docs/themes-fr.md))
 - **Session intelligente** : tes wins/losses sont sauvegardés et persistent entre redémarrages. La session se réinitialise toute seule après 6h d'inactivité (nouvelle journée de jeu = compteurs propres).
-- **Setup guidé** : pas besoin d'aller chercher tes fichiers à la main — l'app retrouve toute seule où ton Rocket League est installé (Steam ou Epic) et active pour toi la fonction "stats en direct" déjà intégrée au jeu (mais désactivée par défaut). Il te reste juste à taper ton pseudo en jeu, pour que l'overlay sache lequel des joueurs du match c'est toi.
+- **Setup guidé** : pas besoin d'aller chercher tes fichiers à la main — l'app retrouve toute seule où ton Rocket League est installé (Steam ou Epic), active pour toi la fonction "stats en direct" déjà intégrée au jeu (mais désactivée par défaut), et **détecte automatiquement ton compte Steam/Epic local**. Aucune saisie de pseudo nécessaire dans la majorité des cas — l'overlay s'associe à toi tout seul dès le premier match (et suit même les changements de compte).
 
 ## 🚀 Installation (3 minutes, zéro ligne de commande)
 
 1. Va sur la page [**Releases**](https://github.com/kevindjf/rl-stats-overlay/releases/latest)
 2. Télécharge `RL Stats Overlay_x.y.z_x64-setup.exe`
 3. Double-clique pour lancer l'installation
-4. À la première ouverture, suis le **wizard de configuration** :
+4. À la première ouverture, suis le **wizard de configuration** (2 étapes si ton compte Steam/Epic est détecté, 3 sinon) :
    - Sélectionne ton installation Rocket League (détectée automatiquement)
-   - Tape ton pseudo en jeu (exactement comme il s'affiche en match)
+   - Confirme l'activation de la Stats API
+   - *(seulement si auto-détection impossible)* Tape ton pseudo en jeu
    - C'est fini — **redémarre Rocket League** pour activer la Stats API
 
 > ### ⚠️ Windows affiche "Microsoft Defender SmartScreen empêché le démarrage"

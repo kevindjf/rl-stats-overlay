@@ -26,16 +26,17 @@
   - 📺 **OBS Browser Source** — to display it on your stream
 - **Several themes** ready to use (and you can build your own — see [the designer guide](docs/themes-en.md))
 - **Smart session**: your wins/losses are saved and persist between restarts. The session resets itself after 6h of inactivity (new gaming day = clean counters).
-- **Guided setup**: no need to dig through your files — the app finds your Rocket League install on its own (Steam or Epic) and turns on the "live stats" feature already built into the game (but disabled by default). All you need to do is type your in-game name so the overlay knows which player is you.
+- **Guided setup**: no need to dig through your files — the app finds your Rocket League install on its own (Steam or Epic), turns on the "live stats" feature already built into the game (but disabled by default), and **auto-detects your local Steam/Epic account**. No name typing required in the majority of cases — the overlay identifies you on the first match (and follows account switches transparently).
 
 ## 🚀 Install (3 minutes, zero command line)
 
 1. Go to the [**Releases**](https://github.com/kevindjf/rl-stats-overlay/releases/latest) page
 2. Download `RL Stats Overlay_x.y.z_x64-setup.exe`
 3. Double-click to run the installer
-4. On first launch, follow the **setup wizard**:
+4. On first launch, follow the **setup wizard** (2 steps if your Steam/Epic account is detected, 3 otherwise):
    - Pick your Rocket League install (auto-detected)
-   - Type your in-game name (exactly as it appears in match)
+   - Confirm Stats API activation
+   - *(only if auto-detection failed)* Type your in-game name
    - Done — **restart Rocket League** to activate the Stats API
 
 > ### ⚠️ Windows shows "Microsoft Defender SmartScreen prevented an unrecognized app from starting"
