@@ -33,6 +33,8 @@ const fr: Catalog = {
   "player.idCaptured": "Identifiant stable capturé : <code>{id}</code>",
   "player.idPending": "L'identifiant stable sera capturé automatiquement au prochain match.",
   "player.savePrompt": "Renseigne un pseudo avant d'enregistrer.",
+  "player.detectedWaiting": "En attente du premier match…",
+  "player.detectedNote": "Pseudo détecté automatiquement à partir de ton compte Steam/Epic. Aucune saisie requise.",
 
   // HUD panel
   "hud.title": "HUD en jeu",
@@ -96,6 +98,8 @@ const fr: Catalog = {
   "wizard.finish": "Terminer ▶",
   "wizard.finishPrompt": "Renseigne ton pseudo en jeu avant de continuer.",
   "wizard.patchError": "Impossible de modifier la configuration de la Stats API :\n{err}\n\nVérifie que tu as les droits d'écriture sur le dossier d'installation.",
+  "wizard.autoDetectedTitle": "Identifiant détecté automatiquement",
+  "wizard.autoDetectedNote": "Ton compte Steam/Epic a été détecté. L'overlay s'associera tout seul à ton joueur dès le premier match.",
 
   // Updater banner
   "update.banner": "🔔 Nouvelle version <strong>{version}</strong> disponible",
@@ -128,6 +132,8 @@ const en: Catalog = {
   "player.idCaptured": "Stable identifier captured: <code>{id}</code>",
   "player.idPending": "The stable identifier will be captured automatically on the next match.",
   "player.savePrompt": "Enter a name before saving.",
+  "player.detectedWaiting": "Waiting for the first match…",
+  "player.detectedNote": "Auto-detected from your Steam/Epic account. No input needed.",
 
   "hud.title": "In-game HUD",
   "hud.note": "Displays the overlay as a transparent window over Rocket League. Works only in <strong>borderless fullscreen</strong>.",
@@ -186,6 +192,8 @@ const en: Catalog = {
   "wizard.finish": "Finish ▶",
   "wizard.finishPrompt": "Enter your in-game name before continuing.",
   "wizard.patchError": "Could not modify the Stats API config:\n{err}\n\nCheck that you have write permissions on the install folder.",
+  "wizard.autoDetectedTitle": "Identifier auto-detected",
+  "wizard.autoDetectedNote": "Your Steam/Epic account was detected. The overlay will identify you on the first match.",
 
   "update.banner": "🔔 New version <strong>{version}</strong> available",
   "update.install": "Install",

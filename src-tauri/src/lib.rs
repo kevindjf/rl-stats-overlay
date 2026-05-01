@@ -13,6 +13,7 @@ use tracing::{info, warn};
 
 mod http_server;
 mod ini_patcher;
+mod platform_detect;
 mod session;
 mod settings;
 mod settings_writer;
@@ -55,6 +56,10 @@ struct StateSnapshot {
     count_team_sizes: Vec<u8>,
     /// UI language preference: "auto" | "fr" | "en".
     language: String,
+    /// True if the boot-time platform-detection found at least one Steam or
+    /// Epic candidate ID. The wizard uses this to skip the "type your in-game
+    /// name" step. We DON'T expose the raw IDs to JS — they are identifying.
+    has_local_platform_candidates: bool,
 }
 
 #[tauri::command]
@@ -105,6 +110,7 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
         hud_h,
         count_team_sizes: settings.count_team_sizes,
         language: settings.language,
+        has_local_platform_candidates: !state.local_platform_candidates.lock().is_empty(),
     }
 }
 
@@ -526,7 +532,15 @@ pub fn run() {
         info!("previous session was older than 6h, starting fresh");
         let _ = loaded.save();
     }
-    let app_state = AppState::new(loaded);
+    // Detect Steam / Epic local IDs once at boot. Cheap (a couple of file
+    // reads); used by `find_local_player` to arbitrate the user across
+    // `Players[].PrimaryId` without requiring them to type a name.
+    let candidates = platform_detect::local_platform_candidates();
+    info!(
+        count = candidates.len(),
+        "local platform candidates detected"
+    );
+    let app_state = AppState::new(loaded, candidates);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())

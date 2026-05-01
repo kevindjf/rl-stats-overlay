@@ -94,6 +94,25 @@ async fn run_connection(
     let mut stream = TcpStream::connect((RL_STATS_API_HOST, RL_STATS_API_PORT)).await?;
     info!("connected to Rocket League Stats API on {RL_STATS_API_HOST}:{RL_STATS_API_PORT}");
 
+    // Re-scan local Steam/Epic identifiers on every WS connect. A user who
+    // closes RL, switches Epic accounts in the launcher (writing a fresh
+    // `.dat`), and relaunches RL would otherwise be stuck with the boot-time
+    // candidate list. The scan is cheap (a couple of file lookups) and the
+    // reconnect is the canonical "something just changed" event for us.
+    let fresh = crate::platform_detect::local_platform_candidates();
+    {
+        // Scoped tightly so the `MutexGuard` (not `Send`) doesn't get held
+        // across the next `.await` — required by `tauri::async_runtime::spawn`.
+        let mut guard = state.local_platform_candidates.lock();
+        if *guard != fresh {
+            info!(
+                count = fresh.len(),
+                "platform candidates refreshed on WS reconnect"
+            );
+            *guard = fresh;
+        }
+    }
+
     // RL was closed long enough → start a fresh session. `take()` makes sure
     // we only fire this once per disconnect event.
     if let Some(t) = last_disconnect.take() {
@@ -239,8 +258,12 @@ fn on_update_state(state: &Arc<AppState>, data: &serde_json::Value) {
         let s = state.settings.lock();
         (s.player_name.clone(), s.primary_id.clone())
     };
+    // Snapshot the candidates list so we drop the lock before the (possibly
+    // longer) search through `Players[]`. The list is small (1-5 entries),
+    // clone is free.
+    let candidates = state.local_platform_candidates.lock().clone();
 
-    let me = match find_local_player(players, &player_name, &stored_primary_id) {
+    let me = match find_local_player(players, &player_name, &stored_primary_id, &candidates) {
         Some(p) => p,
         None => return,
     };
@@ -257,23 +280,62 @@ fn on_update_state(state: &Arc<AppState>, data: &serde_json::Value) {
     // renames don't lose us), and we refresh whenever the player we identified
     // has a PrimaryId different from the one we stored — that detects an
     // account switch on the same pseudonym.
+    //
+    // We also opportunistically backfill `player_name` from the matched
+    // player. The auto-detect wizard skips the name input, so without this
+    // backfill the dashboard's "Player" panel stays empty and the user has
+    // no visual confirmation that detection worked. Only fill in when the
+    // user hasn't typed anything themselves — never overwrite a manual entry.
     let new_pid = me
         .get("PrimaryId")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .unwrap_or("");
-    if !new_pid.is_empty() && new_pid != stored_primary_id {
+    let new_name = me
+        .get("Name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .unwrap_or("");
+    let pid_changed = !new_pid.is_empty() && new_pid != stored_primary_id;
+    // Two modes governing how `player_name` is treated:
+    //   - Auto mode (candidates non-empty): the user can't edit the pseudo
+    //     in the UI. The name always tracks the current account, including
+    //     across account switches.
+    //   - Manual mode (no candidates): the user typed it. Never overwrite.
+    let auto_mode = !candidates.is_empty();
+    let name_should_update = !new_name.is_empty()
+        && new_name != player_name
+        && (player_name.is_empty() || (auto_mode && pid_changed));
+    if pid_changed || name_should_update {
         {
             let mut s = state.settings.lock();
-            s.primary_id = new_pid.to_string();
+            if pid_changed {
+                s.primary_id = new_pid.to_string();
+            }
+            if name_should_update {
+                s.player_name = new_name.to_string();
+            }
         }
         // Persist asynchronously — see `settings_writer.rs` for why this must
         // never run on the TCP read task synchronously.
         state.request_save_settings();
-        if stored_primary_id.is_empty() {
-            info!(primary_id = %new_pid, "captured stable PrimaryId");
-        } else {
-            info!(old = %stored_primary_id, new = %new_pid, "refreshed PrimaryId (account switch)");
+        if pid_changed {
+            if stored_primary_id.is_empty() {
+                info!(
+                    primary_id = %new_pid,
+                    name = %new_name,
+                    "captured stable PrimaryId"
+                );
+            } else {
+                info!(
+                    old = %stored_primary_id,
+                    new = %new_pid,
+                    name = %new_name,
+                    "refreshed PrimaryId (account switch)"
+                );
+            }
+        } else if name_should_update {
+            info!(name = %new_name, "backfilled player_name from match");
         }
     }
 }
@@ -377,12 +439,26 @@ fn find_local_player<'a>(
     players: &'a [serde_json::Value],
     name: &str,
     primary_id: &str,
+    candidates: &[String],
 ) -> Option<&'a serde_json::Value> {
     if !primary_id.is_empty() {
         if let Some(found) = players
             .iter()
             .find(|p| p.get("PrimaryId").and_then(|v| v.as_str()) == Some(primary_id))
         {
+            return Some(found);
+        }
+    }
+    // Prefix-match against the boot-time-detected Steam/Epic candidates. The
+    // trailing `|` baked into each candidate prevents an ID-A being a prefix
+    // of ID-B (`Epic|ab|` mustn't match `Epic|abcdef|0`).
+    if !candidates.is_empty() {
+        if let Some(found) = players.iter().find(|p| {
+            p.get("PrimaryId")
+                .and_then(|v| v.as_str())
+                .map(|pid| candidates.iter().any(|c| pid.starts_with(c)))
+                .unwrap_or(false)
+        }) {
             return Some(found);
         }
     }
@@ -422,22 +498,43 @@ mod tests {
     #[test]
     fn finds_by_primary_id_first() {
         let players = players_fixture();
-        let me = find_local_player(&players, "wrong-name", "Epic|me|0").unwrap();
+        let me = find_local_player(&players, "wrong-name", "Epic|me|0", &[]).unwrap();
         assert_eq!(me.get("Name").and_then(|v| v.as_str()), Some("MyName"));
     }
 
     #[test]
     fn falls_back_to_name_when_primary_id_empty() {
         let players = players_fixture();
-        let me = find_local_player(&players, "myname", "").unwrap();
+        let me = find_local_player(&players, "myname", "", &[]).unwrap();
         assert_eq!(me.get("Name").and_then(|v| v.as_str()), Some("MyName"));
     }
 
     #[test]
     fn returns_none_when_neither_matches() {
         let players = players_fixture();
-        assert!(find_local_player(&players, "ghost", "").is_none());
-        assert!(find_local_player(&players, "", "").is_none());
+        assert!(find_local_player(&players, "ghost", "", &[]).is_none());
+        assert!(find_local_player(&players, "", "", &[]).is_none());
+    }
+
+    /// With no stored primary_id and no name, the boot-time-detected
+    /// platform candidates must arbitrate which player is us.
+    #[test]
+    fn finds_by_platform_prefix_when_id_unknown() {
+        let players = players_fixture();
+        let candidates = vec!["Epic|me|".to_string()];
+        let me = find_local_player(&players, "", "", &candidates).unwrap();
+        assert_eq!(me.get("Name").and_then(|v| v.as_str()), Some("MyName"));
+    }
+
+    /// The trailing `|` discipline prevents ID-A being a prefix of ID-B.
+    /// `Epic|ab|` MUST NOT match a player with `PrimaryId="Epic|abcdef|0"`.
+    #[test]
+    fn prefix_match_does_not_overreach() {
+        let players = vec![
+            json!({ "Name": "Other", "PrimaryId": "Epic|abcdef|0", "TeamNum": 0 }),
+        ];
+        let candidates = vec!["Epic|ab|".to_string()];
+        assert!(find_local_player(&players, "", "", &candidates).is_none());
     }
 
     /// One UTF-8 multi-byte character split across reads must not poison the

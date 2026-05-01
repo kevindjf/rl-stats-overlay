@@ -35,10 +35,19 @@ pub struct AppState {
     /// `UpdateState` can land. Wrapped in `OnceCell` to keep `AppState::new`
     /// callable before the writer task is spawned.
     pub settings_writer: OnceCell<SettingsWriter>,
+    /// `"Platform|Uid|"` prefixes detected on this machine (Steam
+    /// `loginusers.vdf` + Epic `Saved\Data\*.dat` filenames). Refreshed at
+    /// boot **and** every time the WebSocket reconnects to RL — the latter
+    /// catches account additions made while the app stayed open (closing RL
+    /// to switch Epic accounts is the only realistic path to a new account
+    /// mid-session, and that path always cycles the WebSocket). Empty when
+    /// nothing was detected (non-Windows, or the user hasn't logged into
+    /// Steam/Epic on this machine).
+    pub local_platform_candidates: Mutex<Vec<String>>,
 }
 
 impl AppState {
-    pub fn new(settings: Settings) -> Arc<Self> {
+    pub fn new(settings: Settings, local_platform_candidates: Vec<String>) -> Arc<Self> {
         let session = settings.session.clone();
         Arc::new(Self {
             settings: Mutex::new(settings),
@@ -50,6 +59,7 @@ impl AppState {
             current_team_size: AtomicU8::new(0),
             hud_loaded: AtomicBool::new(false),
             settings_writer: OnceCell::new(),
+            local_platform_candidates: Mutex::new(local_platform_candidates),
         })
     }
 

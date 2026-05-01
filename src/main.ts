@@ -1,12 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 
 import { type LangPref, setLanguage, t } from "./i18n";
+import { runWizard } from "./wizard";
 
 // ----- Types ----------------------------------------------------------------
 
@@ -37,17 +37,7 @@ interface StateSnapshot {
   hud_h: number;
   count_team_sizes: number[];
   language: LangPref;
-}
-
-interface DetectedInstall {
-  platform: string;
-  install_dir: string;
-  ini_path: string;
-}
-
-interface PatchOutcome {
-  already_correct: boolean;
-  backup_path: string | null;
+  has_local_platform_candidates: boolean;
 }
 
 // ----- Theme schema ---------------------------------------------------------
@@ -186,7 +176,9 @@ async function refresh(): Promise<StateSnapshot> {
   }
 
   if (!currentState.setup_done) {
-    renderWizard();
+    runWizard(root, currentState, async () => {
+      await refresh();
+    });
   } else {
     renderDashboard();
   }
@@ -341,13 +333,30 @@ function renderDashboard() {
 
       <section class="panel">
         <h2>${t("player.title")}</h2>
-        <div class="row">
-          <div style="flex: 1;">
-            <label for="player-input">${t("player.label")}</label>
-            <input type="text" id="player-input" value="${escapeHtml(s.player_name)}" placeholder="${escapeHtml(t("player.placeholder"))}" />
-          </div>
-          <button class="primary" id="btn-save-name" style="margin-top: 18px;">${t("player.save")}</button>
-        </div>
+        ${s.has_local_platform_candidates
+          ? /* html */ `
+            <div class="row" style="align-items: center;">
+              <div style="flex: 1;">
+                <label>${t("player.label")}</label>
+                <div class="player-detected">
+                  ${s.player_name
+                    ? `<strong>${escapeHtml(s.player_name)}</strong>`
+                    : `<span class="muted">${t("player.detectedWaiting")}</span>`}
+                </div>
+              </div>
+            </div>
+            <p class="muted" style="margin-top: 8px; font-size: 11px;">
+              ${t("player.detectedNote")}
+            </p>`
+          : /* html */ `
+            <div class="row">
+              <div style="flex: 1;">
+                <label for="player-input">${t("player.label")}</label>
+                <input type="text" id="player-input" value="${escapeHtml(s.player_name)}" placeholder="${escapeHtml(t("player.placeholder"))}" />
+              </div>
+              <button class="primary" id="btn-save-name" style="margin-top: 18px;">${t("player.save")}</button>
+            </div>`
+        }
         <p class="muted" style="margin-top: 8px; font-size: 11px;">
           ${s.primary_id
             ? t("player.idCaptured", { id: escapeHtml(s.primary_id) })
@@ -721,149 +730,6 @@ async function onOpenUrl() {
   const url = currentState?.overlay_url;
   if (!url) return;
   await openExternal(url);
-}
-
-// ----- Wizard view ----------------------------------------------------------
-
-let wizardStep: 1 | 2 | 3 = 1;
-let detectedInstalls: DetectedInstall[] = [];
-let chosenIniPath: string | null = null;
-let lastPatchOutcome: PatchOutcome | null = null;
-
-async function renderWizard() {
-  if (wizardStep === 1) {
-    detectedInstalls = await invoke<DetectedInstall[]>("detect_rocket_league");
-  }
-
-  const dots = (1 as number) <= wizardStep
-    ? `
-        <div class="step-indicator">
-          <div class="step-dot ${wizardStep === 1 ? "active" : "done"}">1</div>
-          <div class="step-dot ${wizardStep === 2 ? "active" : wizardStep > 2 ? "done" : ""}">2</div>
-          <div class="step-dot ${wizardStep === 3 ? "active" : ""}">3</div>
-        </div>`
-    : "";
-
-  if (wizardStep === 1) {
-    root.innerHTML = /* html */ `
-      <main class="wizard">
-        ${dots}
-        <h1>${t("wizard.welcome")}</h1>
-        <p class="subtitle">${t("wizard.welcomeSub")}</p>
-
-        <section class="panel">
-          <h2>${t("wizard.installTitle")}</h2>
-          ${
-            detectedInstalls.length === 0
-              ? `<p class="muted">${t("wizard.notDetected")}</p>`
-              : detectedInstalls
-                  .map(
-                    (d, i) => `
-            <div class="install-card" data-idx="${i}">
-              <div style="font-size: 24px;">${d.platform === "Steam" ? "🕹" : "🎮"}</div>
-              <div style="flex: 1;">
-                <div class="platform">${t("wizard.installLabel", { platform: d.platform })}</div>
-                <div class="path">${escapeHtml(d.install_dir)}</div>
-              </div>
-              <div style="color: var(--accent); font-weight: 800;">→</div>
-            </div>
-          `,
-                  )
-                  .join("")
-          }
-          <div class="row" style="margin-top: 12px;">
-            <button id="btn-browse">${t("wizard.browse")}</button>
-          </div>
-        </section>
-      </main>
-    `;
-
-    document.querySelectorAll<HTMLElement>(".install-card").forEach((el) => {
-      el.addEventListener("click", () => {
-        const idx = parseInt(el.dataset.idx || "0", 10);
-        chosenIniPath = detectedInstalls[idx]?.ini_path ?? null;
-        wizardStep = 2;
-        applyPatch();
-      });
-    });
-    document.getElementById("btn-browse")?.addEventListener("click", onBrowse);
-  } else if (wizardStep === 2) {
-    root.innerHTML = /* html */ `
-      <main class="wizard">
-        ${dots}
-        <h1>${t("wizard.apiTitle")}</h1>
-
-        <section class="panel">
-          ${
-            lastPatchOutcome?.already_correct
-              ? `<div class="alert success">${t("wizard.apiAlreadyOk")}</div>`
-              : `<div class="alert success">${t("wizard.apiApplied", { path: escapeHtml(chosenIniPath || "?") })}${
-                  lastPatchOutcome?.backup_path
-                    ? `<br/>${t("wizard.apiBackup", { path: escapeHtml(lastPatchOutcome.backup_path) })}`
-                    : ""
-                }</div>`
-          }
-          <p class="muted" style="margin-top: 12px;">
-            ${t("wizard.apiNote1")}
-          </p>
-          <p class="muted" style="margin-top: 12px;">
-            ${t("wizard.apiNote2")}
-          </p>
-        </section>
-
-        <section class="panel">
-          <h2>${t("wizard.playerTitle")}</h2>
-          <label for="wizard-name">${t("wizard.playerLabel")}</label>
-          <input type="text" id="wizard-name" placeholder="${escapeHtml(t("wizard.playerPlaceholder"))}" autofocus />
-        </section>
-
-        <div class="row">
-          <div class="spacer"></div>
-          <button class="primary" id="btn-finish">${t("wizard.finish")}</button>
-        </div>
-      </main>
-    `;
-
-    document.getElementById("btn-finish")?.addEventListener("click", onFinishWizard);
-    document.getElementById("wizard-name")?.addEventListener("keydown", (e) => {
-      if ((e as KeyboardEvent).key === "Enter") onFinishWizard();
-    });
-  }
-}
-
-async function onBrowse() {
-  const picked = await openDialog({
-    multiple: false,
-    directory: true,
-    title: t("wizard.browseTitle"),
-  });
-  if (!picked || typeof picked !== "string") return;
-  chosenIniPath = picked;
-  wizardStep = 2;
-  await applyPatch();
-}
-
-async function applyPatch() {
-  if (!chosenIniPath) return;
-  try {
-    lastPatchOutcome = await invoke<PatchOutcome>("patch_ini", { path: chosenIniPath });
-    await renderWizard();
-  } catch (err) {
-    alert(t("wizard.patchError", { err: String(err) }));
-    wizardStep = 1;
-    await renderWizard();
-  }
-}
-
-async function onFinishWizard() {
-  const input = document.getElementById("wizard-name") as HTMLInputElement | null;
-  const name = input?.value.trim() || "";
-  if (!name) {
-    return alert(t("wizard.finishPrompt"));
-  }
-  await invoke("set_player_name", { name });
-  await invoke("complete_setup");
-  await refresh();
 }
 
 // ----- Helpers --------------------------------------------------------------

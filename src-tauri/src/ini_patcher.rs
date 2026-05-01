@@ -136,6 +136,37 @@ fn candidate_dirs() -> Vec<(&'static str, PathBuf)> {
     Vec::new()
 }
 
+/// Best-effort Steam installation root. Tries the registry first
+/// (`HKCU\Software\Valve\Steam\SteamPath`), then the classic
+/// `Program Files (x86)\Steam` fallback. Used by both the RL install
+/// detection here and the local-account-id detection in `platform_detect`.
+#[cfg(target_os = "windows")]
+pub(crate) fn steam_root() -> Option<PathBuf> {
+    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+
+    if let Ok(hkcu) = RegKey::predef(HKEY_CURRENT_USER).open_subkey("Software\\Valve\\Steam") {
+        if let Ok(path) = hkcu.get_value::<String, _>("SteamPath") {
+            let p = PathBuf::from(path);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+    if let Some(pf86) = std::env::var_os("ProgramFiles(x86)") {
+        let p = PathBuf::from(pf86).join("Steam");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    if let Some(pf) = std::env::var_os("ProgramFiles") {
+        let p = PathBuf::from(pf).join("Steam");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 #[cfg(target_os = "windows")]
 fn steam_install_dirs() -> Vec<PathBuf> {
     use winreg::{enums::HKEY_CURRENT_USER, RegKey};

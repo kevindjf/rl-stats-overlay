@@ -114,6 +114,20 @@ input[type="number"]:focus {
   border-color: var(--info);
 }
 
+.player-detected {
+  background: #0a0d13;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+}
+.player-detected strong {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .geom-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr 1fr;
