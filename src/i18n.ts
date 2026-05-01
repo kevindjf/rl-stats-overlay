@@ -45,6 +45,8 @@ const fr: Catalog = {
   "hud.reloadTitle": "Recharge le HUD pour forcer un fetch frais des assets",
   "hud.reloaded": "✓ Rechargé",
   "hud.step": "Pas",
+  "hud.lock": "Verrouiller la position",
+  "hud.lockHint": "Verrouillé : le HUD redevient transparent au clic (les inputs passent au jeu) et le drag/clic-droit est désactivé.",
 
   // OBS panel
   "obs.title": "OBS Browser Source",
@@ -143,6 +145,8 @@ const en: Catalog = {
   "hud.reloadTitle": "Reload the HUD to force a fresh asset fetch",
   "hud.reloaded": "✓ Reloaded",
   "hud.step": "Step",
+  "hud.lock": "Lock position",
+  "hud.lockHint": "Locked: the HUD becomes click-through again (cursor events pass to the game) and drag / right-click are disabled.",
 
   "obs.title": "OBS Browser Source",
   "obs.note": "Paste this URL into an OBS <em>Browser Source</em>, dimensions <code>400 × 300</code>.",

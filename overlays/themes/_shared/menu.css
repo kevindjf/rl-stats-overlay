@@ -1,0 +1,44 @@
+/* Right-click context menu for the bundled HUD themes.
+   Hidden by default; positioned absolutely at the cursor when shown.
+   Designed to look native-ish over any theme background — small,
+   rounded, dark glass with a 1px stroke and a soft shadow. */
+
+#hud-context-menu {
+  position: fixed;
+  z-index: 99999;
+  min-width: 180px;
+  padding: 4px;
+  margin: 0;
+  list-style: none;
+  background: rgba(20, 22, 28, 0.96);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font: 13px/1.3 "Segoe UI", "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+  display: none;
+}
+
+#hud-context-menu[data-visible="true"] {
+  display: block;
+}
+
+#hud-context-menu .item {
+  padding: 7px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#hud-context-menu .item:hover,
+#hud-context-menu .item:focus {
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+}
+
+#hud-context-menu .item.danger {
+  color: #ff7a7a;
+}

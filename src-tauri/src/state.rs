@@ -4,6 +4,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU16, AtomicU8},
     Arc,
 };
+use tauri::AppHandle;
 
 use crate::{session::Session, settings::Settings, settings_writer::SettingsWriter};
 
@@ -35,6 +36,10 @@ pub struct AppState {
     /// `UpdateState` can land. Wrapped in `OnceCell` to keep `AppState::new`
     /// callable before the writer task is spawned.
     pub settings_writer: OnceCell<SettingsWriter>,
+    /// Tauri `AppHandle`, populated in the `setup` callback. The embedded
+    /// HTTP server needs it to reach the HUD window (drag, lock toggle) and
+    /// to call `app.exit(0)` from the right-click menu's "Quit" entry.
+    pub app_handle: OnceCell<AppHandle>,
     /// `"Platform|Uid|"` prefixes detected on this machine (Steam
     /// `loginusers.vdf` + Epic `Saved\Data\*.dat` filenames). Refreshed at
     /// boot **and** every time the WebSocket reconnects to RL — the latter
@@ -59,6 +64,7 @@ impl AppState {
             current_team_size: AtomicU8::new(0),
             hud_loaded: AtomicBool::new(false),
             settings_writer: OnceCell::new(),
+            app_handle: OnceCell::new(),
             local_platform_candidates: Mutex::new(local_platform_candidates),
         })
     }

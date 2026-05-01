@@ -39,6 +39,11 @@ pub struct Settings {
     /// Whether the in-game HUD should be opened on app start.
     #[serde(default)]
     pub hud_visible: bool,
+    /// When true, the HUD is click-through (cursor events pass to the game)
+    /// and the drag/right-click endpoints become no-ops. Lets the user pin a
+    /// position once and prevent accidental drags during gameplay.
+    #[serde(default)]
+    pub hud_position_locked: bool,
     /// Active overlay theme. Maps to the folder name under `overlays/themes/`.
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -94,6 +99,13 @@ impl Settings {
             }
         }
     }
+
+    /// True when the persisted HUD size is still the implicit default — i.e.
+    /// the user has never resized the HUD. Used by the boot-time DPI scaler
+    /// to apply a one-shot 4K bump only on virgin installs.
+    pub fn hud_size_is_default(&self) -> bool {
+        self.hud_size.is_none()
+    }
 }
 
 impl Settings {
@@ -146,4 +158,37 @@ fn atomic_write(target: &Path, bytes: &[u8]) -> Result<()> {
     fs::rename(&tmp, target)
         .with_context(|| format!("renaming {} → {}", tmp.display(), target.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hud_size_is_default_on_fresh_settings() {
+        let s = Settings::default();
+        assert!(s.hud_size_is_default());
+    }
+
+    #[test]
+    fn hud_size_is_default_false_after_user_override() {
+        let mut s = Settings::default();
+        s.hud_size = Some((600, 450));
+        assert!(!s.hud_size_is_default());
+    }
+
+    #[test]
+    fn hud_position_locked_default_is_false() {
+        let s = Settings::default();
+        assert!(!s.hud_position_locked);
+    }
+
+    #[test]
+    fn settings_round_trip_preserves_hud_position_locked() {
+        let mut s = Settings::default();
+        s.hud_position_locked = true;
+        let json = serde_json::to_string(&s).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert!(back.hud_position_locked);
+    }
 }

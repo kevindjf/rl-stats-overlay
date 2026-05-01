@@ -3,7 +3,7 @@ use axum::{
     extract::{Path as AxumPath, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use rust_embed::RustEmbed;
@@ -12,8 +12,9 @@ use std::{
     net::SocketAddr,
     sync::{atomic::Ordering, Arc},
 };
+use tauri::{Emitter, Manager};
 use tokio::net::TcpListener;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::state::AppState;
 
@@ -44,6 +45,16 @@ pub async fn start(state: Arc<AppState>) -> Result<()> {
         // themes from the settings window.
         .route("/overlays/boost.html", get(serve_active_boost))
         .route("/overlays/*path", get(serve_overlay))
+        // HUD-side actions, reached by the bundled themes' right-click menu
+        // and the drag-to-move snippet. They are POSTed from JS so a
+        // misclick on a refresh / preview never triggers them. When the HUD
+        // window is absent (e.g. the same HTML loaded as an OBS browser
+        // source) the handlers return a soft 404 / no-op so the page keeps
+        // rendering normally.
+        .route("/hud/start-drag", post(hud_start_drag))
+        .route("/hud/toggle-lock", post(hud_toggle_lock))
+        .route("/session/reset", post(session_reset))
+        .route("/app/quit", post(app_quit))
         .with_state(state);
 
     axum::serve(listener, router.into_make_service())
@@ -166,6 +177,77 @@ async fn api_state(State(state): State<Arc<AppState>>) -> Json<StateSnapshot> {
         hud_visible: settings.hud_visible,
         http_port: state.http_port.load(Ordering::SeqCst),
     })
+}
+
+/// HUD drag handler. Calls Tauri's native window `start_dragging()` so the OS
+/// takes over the move loop (no JS-side mouse tracking needed). Short-circuits
+/// when the user has locked the position. Returns 404 when the HUD window
+/// doesn't exist — that's the OBS browser source case, where the same HTML
+/// is loaded outside of Tauri; the frontend snippet ignores 404s.
+async fn hud_start_drag(State(state): State<Arc<AppState>>) -> Response {
+    if state.settings.lock().hud_position_locked {
+        return StatusCode::OK.into_response();
+    }
+    let app = match state.app_handle.get() {
+        Some(a) => a,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, "app not ready").into_response(),
+    };
+    let hud = match app.get_webview_window("hud") {
+        Some(w) => w,
+        None => return (StatusCode::NOT_FOUND, "no hud window").into_response(),
+    };
+    if let Err(err) = hud.start_dragging() {
+        warn!(?err, "start_dragging failed");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response();
+    }
+    StatusCode::OK.into_response()
+}
+
+/// Right-click "Toggle position lock" handler. Flips the persisted bool and
+/// updates the HUD's `ignore_cursor_events` so the lock has a visible effect:
+/// locked = click-through (cursor passes to the game), unlocked = interactive.
+async fn hud_toggle_lock(State(state): State<Arc<AppState>>) -> Response {
+    let new_locked = {
+        let mut s = state.settings.lock();
+        s.hud_position_locked = !s.hud_position_locked;
+        s.hud_position_locked
+    };
+    state.request_save_settings();
+    if let Some(app) = state.app_handle.get() {
+        if let Some(hud) = app.get_webview_window("hud") {
+            let _ = hud.set_ignore_cursor_events(new_locked);
+        }
+        let _ = app.emit("rlstats://hud-lock-changed", new_locked);
+    }
+    Json(serde_json::json!({ "locked": new_locked })).into_response()
+}
+
+/// Right-click "Reset session" handler. Mirrors the `reset_session` Tauri
+/// command but reachable without `window.__TAURI__` (the HUD's webview is
+/// loaded over plain HTTP, not the tauri:// protocol).
+async fn session_reset(State(state): State<Arc<AppState>>) -> Response {
+    {
+        let mut session = state.session.lock();
+        session.reset();
+        let snapshot = session.clone();
+        let mut settings = state.settings.lock();
+        settings.session = snapshot;
+    }
+    state.request_save_settings();
+    if let Some(app) = state.app_handle.get() {
+        let _ = app.emit("rlstats://session-changed", ());
+    }
+    StatusCode::OK.into_response()
+}
+
+/// Right-click "Quit" handler. Triggers the same exit path as the tray menu
+/// entry — drops the tray icon, stops the HTTP / WS tasks, settings get one
+/// last flush via the writer's drop guards.
+async fn app_quit(State(state): State<Arc<AppState>>) -> Response {
+    if let Some(app) = state.app_handle.get() {
+        app.exit(0);
+    }
+    StatusCode::OK.into_response()
 }
 
 async fn serve_overlay(AxumPath(path): AxumPath<String>) -> Response {

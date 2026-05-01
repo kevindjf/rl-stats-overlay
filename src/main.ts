@@ -38,6 +38,7 @@ interface StateSnapshot {
   count_team_sizes: number[];
   language: LangPref;
   has_local_platform_candidates: boolean;
+  hud_position_locked: boolean;
 }
 
 // ----- Theme schema ---------------------------------------------------------
@@ -206,6 +207,10 @@ setTimeout(() => {
 // Live updates pushed by the Rust side.
 listen("rlstats://connected", () => refresh());
 listen("rlstats://session-changed", () => refresh());
+// Right-clicking the HUD's "Toggle lock" entry flips the bool server-side
+// without going through the Tauri command — keep the dashboard checkbox in
+// sync with the persisted value.
+listen("rlstats://hud-lock-changed", () => refresh());
 
 // Re-poll every second so the connected dot stays accurate even if events drop.
 setInterval(() => {
@@ -392,6 +397,12 @@ function renderDashboard() {
             ${renderGeomStepper("Width",  "geom-w", s.hud_w)}
             ${renderGeomStepper("Height", "geom-h", s.hud_h)}
           </div>
+
+          <label class="hud-lock-toggle" style="display:flex; align-items:center; gap:8px; margin-top: 12px; font-size: 13px;">
+            <input type="checkbox" id="hud-lock" ${s.hud_position_locked ? "checked" : ""} />
+            <span>${t("hud.lock")}</span>
+          </label>
+          <p class="muted" style="margin: 6px 0 0; font-size: 11px;">${t("hud.lockHint")}</p>
         </div>
       </section>
 
@@ -432,6 +443,11 @@ function renderDashboard() {
   bindTeamSizeFilter();
   document.getElementById("btn-toggle-hud")?.addEventListener("click", onToggleHud);
   document.getElementById("btn-reload-hud")?.addEventListener("click", onReloadHud);
+  document.getElementById("hud-lock")?.addEventListener("change", async (e) => {
+    const locked = (e.target as HTMLInputElement).checked;
+    await invoke("set_hud_locked", { locked });
+    await refresh();
+  });
   document.getElementById("btn-copy-url")?.addEventListener("click", onCopyUrl);
   document.getElementById("btn-open-url")?.addEventListener("click", onOpenUrl);
   document.getElementById("btn-open-logs")?.addEventListener("click", () => {

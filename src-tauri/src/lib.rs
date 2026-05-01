@@ -60,6 +60,8 @@ struct StateSnapshot {
     /// Epic candidate ID. The wizard uses this to skip the "type your in-game
     /// name" step. We DON'T expose the raw IDs to JS — they are identifying.
     has_local_platform_candidates: bool,
+    /// True when the HUD's position is locked (click-through, drag disabled).
+    hud_position_locked: bool,
 }
 
 #[tauri::command]
@@ -111,6 +113,7 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
         count_team_sizes: settings.count_team_sizes,
         language: settings.language,
         has_local_platform_candidates: !state.local_platform_candidates.lock().is_empty(),
+        hud_position_locked: settings.hud_position_locked,
     }
 }
 
@@ -316,6 +319,28 @@ fn set_count_team_sizes(
     Ok(())
 }
 
+/// Toggle (or explicitly set) the HUD position lock. When locked, the HUD
+/// becomes click-through (cursor events pass to the game), the drag handler
+/// short-circuits, and the dashboard checkbox renders checked. The change is
+/// persisted asynchronously via the coalescing settings writer.
+#[tauri::command]
+fn set_hud_locked(
+    app: AppHandle,
+    locked: bool,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    {
+        let mut s = state.settings.lock();
+        s.hud_position_locked = locked;
+    }
+    state.request_save_settings();
+    if let Some(hud) = hud_window(&app) {
+        let _ = hud.set_ignore_cursor_events(locked);
+    }
+    let _ = app.emit("rlstats://hud-lock-changed", locked);
+    Ok(())
+}
+
 /// Discovery of every installed theme — bundled + user-dropped.
 /// Called from the settings UI on boot and after the user clicks
 /// "Refresh themes" so a freshly-dropped folder appears without restart.
@@ -419,6 +444,46 @@ fn set_hud_geometry(
 
 fn hud_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(HUD_WINDOW)
+}
+
+/// Default HUD size (`tauri.conf.json`: 400×300 physical pixels). Kept in
+/// sync with the window declaration — if you bump the conf, bump this.
+const DEFAULT_HUD_W: u32 = 400;
+const DEFAULT_HUD_H: u32 = 300;
+
+/// Pick a one-shot HUD size based on the monitor the HUD lands on at boot.
+/// Returns `None` when we can't read the monitor (we'd rather keep the
+/// configured default than guess wrong); otherwise scales the 400×300 base
+/// up by the same multiplier so the HUD stays visually the same fraction
+/// of screen height across resolutions:
+///
+/// * ≤1080p → 1.00× (no change)
+/// * ≤1440p → 1.25×
+/// * ≤2160p (4K) → 1.50×
+/// * larger (5K+) → 2.00×
+///
+/// Decision is based on the monitor's physical *height* — width-only ladders
+/// misclassify ultrawides where 3440×1440 is logically 1440p, not 2K-wide.
+fn dpi_default_hud_size(hud: &WebviewWindow) -> Option<(u32, u32)> {
+    let monitor = hud.current_monitor().ok().flatten()?;
+    let h = monitor.size().height;
+    let factor: f64 = if h <= 1080 {
+        1.0
+    } else if h <= 1440 {
+        1.25
+    } else if h <= 2160 {
+        1.5
+    } else {
+        2.0
+    };
+    if (factor - 1.0).abs() < f64::EPSILON {
+        // Nothing to scale — return None so the caller leaves `hud_size`
+        // as `None` and a future tauri.conf bump propagates naturally.
+        return None;
+    }
+    let w = (DEFAULT_HUD_W as f64 * factor).round() as u32;
+    let new_h = (DEFAULT_HUD_H as f64 * factor).round() as u32;
+    Some((w, new_h))
 }
 
 fn settings_window(app: &AppHandle) -> Option<WebviewWindow> {
@@ -567,30 +632,64 @@ pub fn run() {
             open_logs_folder,
             set_count_team_sizes,
             set_language,
+            set_hud_locked,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+            // Stash the AppHandle so the embedded HTTP server can reach the
+            // HUD window and `app.exit(0)` from its handlers (the HUD is
+            // loaded over plain HTTP, not tauri://, so JS there can't call
+            // Tauri commands directly — see CLAUDE.md "Architecture caveat").
+            let _ = app_state.app_handle.set(handle.clone());
 
-            // Make sure the HUD window starts hidden and click-through, then
-            // restore the user's saved visibility/geometry.
+            // Make sure the HUD window starts hidden, then restore the
+            // user's saved visibility/geometry.
+            //
+            // Click-through (`set_ignore_cursor_events`) is now driven by the
+            // position-lock toggle: locked → click-through (game gets cursor
+            // events as before), unlocked → interactive (the user can drag
+            // the HUD with the mouse, right-click for a context menu).
             if let Some(hud) = hud_window(&handle) {
                 let _ = hud.hide();
-                let _ = hud.set_ignore_cursor_events(true);
-                let settings = app_state.settings.lock();
-                if let Some((x, y)) = settings.hud_pos {
-                    let _ = hud.set_position(PhysicalPosition::new(x, y));
-                }
-                if let Some((w, h)) = settings.hud_size {
-                    let _ = hud.set_size(PhysicalSize::new(w, h));
-                }
-                let should_show = settings.hud_visible;
-                drop(settings);
-                if should_show {
-                    let _ = hud.show();
-                    // The webview already loads its URL on creation, so the
-                    // user's first toggle should skip the cache-busting
-                    // reload that `toggle_hud` does for cold paths.
-                    app_state.hud_loaded.store(true, Ordering::SeqCst);
+                {
+                    let mut settings = app_state.settings.lock();
+                    let _ = hud.set_ignore_cursor_events(settings.hud_position_locked);
+                    if let Some((x, y)) = settings.hud_pos {
+                        let _ = hud.set_position(PhysicalPosition::new(x, y));
+                    }
+                    // First-launch DPI auto-scale: only when the user hasn't
+                    // resized the HUD yet. Persists immediately so subsequent
+                    // launches don't re-scale (one-shot init). See
+                    // `dpi_default_hud_size` for the scale ladder.
+                    let scaled = if settings.hud_size_is_default() {
+                        dpi_default_hud_size(&hud)
+                    } else {
+                        None
+                    };
+                    let (target_w, target_h) = settings
+                        .hud_size
+                        .or(scaled)
+                        .unwrap_or((400, 300));
+                    let _ = hud.set_size(PhysicalSize::new(target_w, target_h));
+                    if scaled.is_some() {
+                        settings.hud_size = scaled;
+                        // Sync to disk now — the writer is spawned a few lines
+                        // below, so the usual `request_save_settings` would
+                        // silently drop. A blocking write at boot is fine
+                        // (single shot, no hot path).
+                        if let Err(err) = settings.save() {
+                            warn!(?err, "failed to persist DPI-scaled HUD size");
+                        }
+                    }
+                    let should_show = settings.hud_visible;
+                    drop(settings);
+                    if should_show {
+                        let _ = hud.show();
+                        // The webview already loads its URL on creation, so the
+                        // user's first toggle should skip the cache-busting
+                        // reload that `toggle_hud` does for cold paths.
+                        app_state.hud_loaded.store(true, Ordering::SeqCst);
+                    }
                 }
             }
 
