@@ -1,11 +1,45 @@
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
+use serde::Serialize;
 use std::sync::{
     atomic::{AtomicBool, AtomicU16, AtomicU8},
     Arc,
 };
 
 use crate::{session::Session, settings::Settings, settings_writer::SettingsWriter};
+
+/// Per-player stats decoded from each `UpdateState` tick. Mirrors the official
+/// fields documented in `docs/stats-api-reference.md` (Players[]). Missing
+/// fields default to zero so a partial payload never poisons the rendered UI.
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerStats {
+    pub primary_id: String,
+    pub name: String,
+    pub team_num: u8,
+    pub goals: u32,
+    pub saves: u32,
+    pub shots: u32,
+    pub assists: u32,
+    pub score: u32,
+}
+
+/// Snapshot of the live match (per-player + per-team) refreshed on every
+/// `UpdateState` tick and reset between matches. Surface for the dashboard
+/// and themes that want to display in-match stats alongside the rolling
+/// session counters.
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchStats {
+    /// One entry per player currently in the match.
+    pub players: Vec<PlayerStats>,
+    /// `[blue, orange]` team scores from `Game.Teams[].Score`.
+    pub team_scores: [u32; 2],
+    /// Seconds remaining on the match clock (`Game.TimeSeconds`).
+    pub time_seconds: u32,
+    /// True when `Game.bOvertime` is set.
+    pub overtime: bool,
+}
 
 /// State shared across the WebSocket worker, the embedded HTTP server, and
 /// the Tauri command handlers. All fields are wrapped in cheap synchronization
@@ -44,6 +78,13 @@ pub struct AppState {
     /// nothing was detected (non-Windows, or the user hasn't logged into
     /// Steam/Epic on this machine).
     pub local_platform_candidates: Mutex<Vec<String>>,
+    /// Live per-player + per-team match stats decoded from `UpdateState`.
+    /// Reset to defaults between matches. See [`MatchStats`].
+    pub match_stats: Mutex<MatchStats>,
+    /// Mirrors the `--no-auto-install` CLI flag. When true, the wizard
+    /// short-circuits the auto-INI-patch step (the user is asserting that
+    /// the Stats API is already enabled). Surface via [`StateSnapshot`].
+    pub no_auto_install: AtomicBool,
 }
 
 impl AppState {
@@ -60,6 +101,8 @@ impl AppState {
             hud_loaded: AtomicBool::new(false),
             settings_writer: OnceCell::new(),
             local_platform_candidates: Mutex::new(local_platform_candidates),
+            match_stats: Mutex::new(MatchStats::default()),
+            no_auto_install: AtomicBool::new(false),
         })
     }
 

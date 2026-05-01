@@ -1,4 +1,5 @@
 use anyhow::Result;
+use parking_lot::Mutex;
 use serde::Deserialize;
 use std::{
     sync::{atomic::Ordering, Arc},
@@ -8,7 +9,21 @@ use tauri::{AppHandle, Emitter};
 use tokio::{io::AsyncReadExt, net::TcpStream, time::sleep};
 use tracing::{debug, info, warn};
 
-use crate::state::AppState;
+use crate::state::{AppState, MatchStats, PlayerStats};
+
+/// Minimum gap between two `rlstats://match-stats` events. UpdateState
+/// arrives at the user's PacketSendRate (up to 120 Hz); we coalesce so the
+/// frontend only repaints a few times per second.
+const MATCH_STATS_EMIT_DEBOUNCE: Duration = Duration::from_millis(250);
+
+/// Last time we emitted `rlstats://match-stats` and the last value emitted
+/// (so we suppress strictly-equal updates entirely). Static state because
+/// the WS task is single-instance for the lifetime of the process.
+static MATCH_STATS_GATE: Mutex<Option<MatchStatsEmitGate>> = Mutex::new(None);
+struct MatchStatsEmitGate {
+    last_at: Instant,
+    last_value: MatchStats,
+}
 
 /// TCP endpoint of the official Rocket League Stats API. Despite older
 /// references calling this a "WebSocket", current RL builds expose it as
@@ -225,10 +240,14 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
     };
 
     match payload.event.as_str() {
-        "UpdateState" => on_update_state(state, &data),
+        "UpdateState" => on_update_state(app, state, &data),
         "MatchEnded" => on_match_ended(app, state, &data),
         "MatchInitialized" | "MatchCreated" => {
+            reset_match_stats(app, state);
             let _ = app.emit("rlstats://match-started", ());
+        }
+        "MatchDestroyed" => {
+            reset_match_stats(app, state);
         }
         "GoalScored" => {
             let _ = app.emit("rlstats://goal-scored", data);
@@ -237,7 +256,19 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
     }
 }
 
-fn on_update_state(state: &Arc<AppState>, data: &serde_json::Value) {
+/// Wipe per-match stats between matches so a stale Goals/Saves count doesn't
+/// bleed from one map into the next.
+fn reset_match_stats(app: &AppHandle, state: &Arc<AppState>) {
+    let mut guard = state.match_stats.lock();
+    if *guard != MatchStats::default() {
+        *guard = MatchStats::default();
+        drop(guard);
+        let snapshot = state.match_stats.lock().clone();
+        emit_match_stats(app, snapshot, true);
+    }
+}
+
+fn on_update_state(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Value) {
     let players = match data.get("Players").and_then(|v| v.as_array()) {
         Some(p) => p,
         None => return,
@@ -251,6 +282,18 @@ fn on_update_state(state: &Arc<AppState>, data: &serde_json::Value) {
         state
             .current_team_size
             .store(team_size, Ordering::Relaxed);
+    }
+
+    // Decode the full match stats (per-player + per-team) and store them.
+    // Cheap enough to do on every tick — players[] is at most 8 entries.
+    let parsed = parse_match_stats(players, data.get("Game"));
+    {
+        let mut guard = state.match_stats.lock();
+        if *guard != parsed {
+            *guard = parsed.clone();
+            drop(guard);
+            emit_match_stats(app, parsed, false);
+        }
     }
 
     // Single read-lock to extract everything we need before searching.
@@ -394,6 +437,8 @@ fn on_match_ended(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Val
     state.request_save_settings();
 
     let _ = app.emit("rlstats://session-changed", ());
+    // The match is over — wipe per-match stats so the next match starts clean.
+    reset_match_stats(app, state);
 }
 
 fn mark_connected(app: &AppHandle, state: &Arc<AppState>) {
@@ -418,6 +463,92 @@ fn reset_session_for_relaunch(app: &AppHandle, state: &Arc<AppState>) {
     *state.last_counted_match.lock() = None;
     state.request_save_settings();
     let _ = app.emit("rlstats://session-changed", ());
+}
+
+/// Decode the per-player + per-team subset of an `UpdateState` payload into
+/// a [`MatchStats`]. Missing fields default to zero — the official API drops
+/// optional fields silently and a partial tick must not zero out the rest of
+/// the document.
+pub(crate) fn parse_match_stats(
+    players: &[serde_json::Value],
+    game: Option<&serde_json::Value>,
+) -> MatchStats {
+    let players = players
+        .iter()
+        .map(|p| PlayerStats {
+            primary_id: p
+                .get("PrimaryId")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            name: p
+                .get("Name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            team_num: p
+                .get("TeamNum")
+                .and_then(|v| v.as_i64())
+                .and_then(|n| u8::try_from(n).ok())
+                .unwrap_or(0),
+            goals: u32_or_zero(p.get("Goals")),
+            saves: u32_or_zero(p.get("Saves")),
+            shots: u32_or_zero(p.get("Shots")),
+            assists: u32_or_zero(p.get("Assists")),
+            score: u32_or_zero(p.get("Score")),
+        })
+        .collect();
+
+    let mut team_scores = [0u32; 2];
+    let mut time_seconds: u32 = 0;
+    let mut overtime = false;
+    if let Some(game) = game {
+        if let Some(teams) = game.get("Teams").and_then(|v| v.as_array()) {
+            for t in teams {
+                let idx = t
+                    .get("TeamNum")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(-1);
+                if (0..=1).contains(&idx) {
+                    team_scores[idx as usize] = u32_or_zero(t.get("Score"));
+                }
+            }
+        }
+        time_seconds = u32_or_zero(game.get("TimeSeconds"));
+        overtime = game
+            .get("bOvertime")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+    }
+
+    MatchStats { players, team_scores, time_seconds, overtime }
+}
+
+fn u32_or_zero(v: Option<&serde_json::Value>) -> u32 {
+    v.and_then(|x| x.as_i64())
+        .map(|n| if n < 0 { 0 } else { n as u32 })
+        .unwrap_or(0)
+}
+
+/// Push the latest [`MatchStats`] to the frontend, debounced to at most one
+/// emit per [`MATCH_STATS_EMIT_DEBOUNCE`] window. Identical successive
+/// payloads are suppressed entirely. Pass `force = true` to bypass both
+/// guards (used on between-match resets so the UI clears immediately).
+fn emit_match_stats(app: &AppHandle, stats: MatchStats, force: bool) {
+    let mut gate = MATCH_STATS_GATE.lock();
+    let now = Instant::now();
+    if !force {
+        if let Some(g) = gate.as_ref() {
+            if g.last_value == stats && now.duration_since(g.last_at) < MATCH_STATS_EMIT_DEBOUNCE {
+                return;
+            }
+            if now.duration_since(g.last_at) < MATCH_STATS_EMIT_DEBOUNCE {
+                return;
+            }
+        }
+    }
+    let _ = app.emit("rlstats://match-stats", &stats);
+    *gate = Some(MatchStatsEmitGate { last_at: now, last_value: stats });
 }
 
 /// Returns the max players-per-team count among the up-to-4 teams seen
@@ -577,6 +708,65 @@ mod tests {
             let j = jittered(1000);
             assert!(j >= 800 && j <= 1200, "jitter out of range: {j}");
         }
+    }
+
+    #[test]
+    fn parse_match_stats_decodes_full_payload() {
+        let players = vec![
+            json!({
+                "Name": "Alice",
+                "PrimaryId": "Steam|11|0",
+                "TeamNum": 0,
+                "Goals": 2,
+                "Saves": 1,
+                "Shots": 4,
+                "Assists": 1,
+                "Score": 350,
+            }),
+            json!({
+                "Name": "Bob",
+                "PrimaryId": "Epic|22|0",
+                "TeamNum": 1,
+                "Goals": 1,
+                // Saves missing — must default to 0.
+                "Shots": 3,
+                "Assists": 0,
+                "Score": 200,
+            }),
+        ];
+        let game = json!({
+            "Teams": [
+                { "TeamNum": 0, "Score": 2 },
+                { "TeamNum": 1, "Score": 1 },
+            ],
+            "TimeSeconds": 137,
+            "bOvertime": false,
+        });
+        let stats = parse_match_stats(&players, Some(&game));
+        assert_eq!(stats.players.len(), 2);
+        assert_eq!(stats.players[0].name, "Alice");
+        assert_eq!(stats.players[0].team_num, 0);
+        assert_eq!(stats.players[0].goals, 2);
+        assert_eq!(stats.players[0].saves, 1);
+        assert_eq!(stats.players[0].shots, 4);
+        assert_eq!(stats.players[0].assists, 1);
+        assert_eq!(stats.players[0].score, 350);
+        // Missing field defaulted to zero.
+        assert_eq!(stats.players[1].saves, 0);
+        assert_eq!(stats.team_scores, [2, 1]);
+        assert_eq!(stats.time_seconds, 137);
+        assert!(!stats.overtime);
+    }
+
+    #[test]
+    fn parse_match_stats_handles_missing_game_block() {
+        let players = vec![json!({ "Name": "Solo", "TeamNum": 0, "Goals": 1 })];
+        let stats = parse_match_stats(&players, None);
+        assert_eq!(stats.players.len(), 1);
+        assert_eq!(stats.players[0].goals, 1);
+        assert_eq!(stats.team_scores, [0, 0]);
+        assert_eq!(stats.time_seconds, 0);
+        assert!(!stats.overtime);
     }
 
     #[test]

@@ -20,6 +20,14 @@
     <div class="row loss-row">
       <span class="label">Loss</span><span class="sep">:</span><span class="value loss" id="v-losses">0</span>
     </div>
+    <!-- This-match stats: live Goals / Saves / Shots / Assists for the
+         local player, sourced from the same /api/state endpoint. Hidden
+         by default and revealed once a match is live so the panel stays
+         compact between matches. -->
+    <div class="row match-row" id="row-match" hidden>
+      <span class="label">Match</span><span class="sep">:</span>
+      <span class="value match" id="v-match">0/0/0/0</span>
+    </div>
   </div>
 
   <script type="module" src="./boost.js"></script>

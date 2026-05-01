@@ -19,6 +19,26 @@ interface Session {
   last_update: number;
 }
 
+// Camel-cased to mirror the `serde(rename_all = "camelCase")` attribute on
+// the Rust side — these come straight off the wire as-is.
+interface PlayerStats {
+  primaryId: string;
+  name: string;
+  teamNum: number;
+  goals: number;
+  saves: number;
+  shots: number;
+  assists: number;
+  score: number;
+}
+
+interface MatchStats {
+  players: PlayerStats[];
+  teamScores: [number, number];
+  timeSeconds: number;
+  overtime: boolean;
+}
+
 interface StateSnapshot {
   connected: boolean;
   player_name: string;
@@ -38,6 +58,9 @@ interface StateSnapshot {
   count_team_sizes: number[];
   language: LangPref;
   has_local_platform_candidates: boolean;
+  auto_hide_hud_when_offline: boolean;
+  match_stats: MatchStats;
+  no_auto_install: boolean;
 }
 
 // ----- Theme schema ---------------------------------------------------------
@@ -206,6 +229,13 @@ setTimeout(() => {
 // Live updates pushed by the Rust side.
 listen("rlstats://connected", () => refresh());
 listen("rlstats://session-changed", () => refresh());
+// Per-match stats stream — already debounced server-side to ~250ms.
+listen<MatchStats>("rlstats://match-stats", (event) => {
+  if (currentState) {
+    currentState.match_stats = event.payload;
+  }
+  refresh().catch(() => {});
+});
 
 // Re-poll every second so the connected dot stays accurate even if events drop.
 setInterval(() => {
@@ -373,6 +403,14 @@ function renderDashboard() {
           }</button>
           <button id="btn-reload-hud" title="${escapeHtml(t("hud.reloadTitle"))}">${t("hud.reload")}</button>
         </div>
+        <div class="row" style="margin-top: 10px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size: 12px;">
+            <input type="checkbox" id="auto-hide-hud" ${s.auto_hide_hud_when_offline ? "checked" : ""} />
+            ${t("hud.autoHide")}
+          </label>
+        </div>
+
+        ${renderMatchStatsBlock(s)}
 
         <div class="hud-geom">
           <div class="row" style="gap: 16px; align-items: flex-end;">
@@ -432,6 +470,10 @@ function renderDashboard() {
   bindTeamSizeFilter();
   document.getElementById("btn-toggle-hud")?.addEventListener("click", onToggleHud);
   document.getElementById("btn-reload-hud")?.addEventListener("click", onReloadHud);
+  document.getElementById("auto-hide-hud")?.addEventListener("change", async (e) => {
+    const enabled = (e.target as HTMLInputElement).checked;
+    await invoke("set_auto_hide_hud_when_offline", { enabled });
+  });
   document.getElementById("btn-copy-url")?.addEventListener("click", onCopyUrl);
   document.getElementById("btn-open-url")?.addEventListener("click", onOpenUrl);
   document.getElementById("btn-open-logs")?.addEventListener("click", () => {
@@ -447,6 +489,38 @@ function renderDashboard() {
 
   bindGeomListeners();
   bindThemeListeners();
+}
+
+// ----- Per-match stats block -----------------------------------------------
+
+/// Tiny "this match: G/S/Sh/A" readout under the HUD panel. Shows the local
+/// player's stats by matching `primary_id` against the players[] list. Renders
+/// a placeholder before the first match to make it obvious the data flow is
+/// live but quiet.
+function renderMatchStatsBlock(s: StateSnapshot): string {
+  const me = s.match_stats?.players?.find((p) => p.primaryId === s.primary_id);
+  const hint = `<p class="muted" style="margin: 6px 0 0; font-size: 11px;">${t("hud.matchHint")}</p>`;
+  if (!me) {
+    return /* html */ `
+      <div class="match-stats" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border, rgba(255,255,255,0.08));">
+        <label style="font-weight: 600; font-size: 13px;">${t("hud.matchTitle")}</label>
+        <p class="muted" style="margin: 4px 0 0; font-size: 12px;">${t("hud.matchEmpty")}</p>
+        ${hint}
+      </div>
+    `;
+  }
+  return /* html */ `
+    <div class="match-stats" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border, rgba(255,255,255,0.08));">
+      <label style="font-weight: 600; font-size: 13px;">${t("hud.matchTitle")}</label>
+      <div style="margin-top: 4px; font-variant-numeric: tabular-nums; font-size: 13px;">
+        <strong>${me.goals}</strong> G ·
+        <strong>${me.saves}</strong> S ·
+        <strong>${me.shots}</strong> Sh ·
+        <strong>${me.assists}</strong> A
+      </div>
+      ${hint}
+    </div>
+  `;
 }
 
 // ----- HUD geometry steppers -----------------------------------------------
