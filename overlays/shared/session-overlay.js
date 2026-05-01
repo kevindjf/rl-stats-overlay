@@ -25,6 +25,10 @@ export async function startSessionOverlay(opts = {}) {
     wins: "#v-wins",
     losses: "#v-losses",
     conn: "#conn",
+    // Optional — themes that don't display per-match stats simply leave
+    // these elements out and the loop skips the readout silently.
+    match: "#v-match",
+    matchRow: "#row-match",
     ...(opts.selectors || {}),
   };
 
@@ -32,6 +36,8 @@ export async function startSessionOverlay(opts = {}) {
   const elWins = document.querySelector(sel.wins);
   const elLosses = document.querySelector(sel.losses);
   const elConn = document.querySelector(sel.conn);
+  const elMatch = document.querySelector(sel.match);
+  const elMatchRow = document.querySelector(sel.matchRow);
   if (!elStreak || !elWins || !elLosses) {
     console.error("startSessionOverlay: missing DOM elements", sel);
     return;
@@ -72,6 +78,26 @@ export async function startSessionOverlay(opts = {}) {
   const cfg = await loadOverlayConfig();
   applyThemeVars(cfg.themeVars);
 
+  /**
+   * Update the optional per-match readout. Themes wire it by including
+   * a `#v-match` element (and optionally a `#row-match` wrapper to hide
+   * between matches). Looks up the local player by PrimaryId — when we
+   * can't find them, the row is simply hidden.
+   */
+  function renderMatch(matchStats) {
+    if (!elMatch) return;
+    const players = Array.isArray(matchStats?.players) ? matchStats.players : [];
+    const me = cfg.primaryId
+      ? players.find((p) => (p.primaryId || "") === cfg.primaryId)
+      : null;
+    if (!me) {
+      if (elMatchRow) elMatchRow.hidden = true;
+      return;
+    }
+    if (elMatchRow) elMatchRow.hidden = false;
+    elMatch.textContent = `${me.goals || 0}/${me.saves || 0}/${me.shots || 0}/${me.assists || 0}`;
+  }
+
   async function poll() {
     try {
       const res = await fetch("/api/state", { cache: "no-store" });
@@ -90,6 +116,7 @@ export async function startSessionOverlay(opts = {}) {
         },
         true,
       );
+      renderMatch(data.matchStats);
     } catch (_) {
       elConn?.classList.remove("ok");
     }

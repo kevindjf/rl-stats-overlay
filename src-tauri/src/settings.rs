@@ -62,6 +62,11 @@ pub struct Settings {
     /// We treat any unrecognized value as "auto" on the frontend.
     #[serde(default = "default_language")]
     pub language: String,
+    /// When true, the HUD window auto-shows on RL connect and auto-hides on
+    /// disconnect. Off by default — opt-in to avoid surprising existing
+    /// users who learned the manual show/hide buttons.
+    #[serde(default)]
+    pub auto_hide_hud_when_offline: bool,
 }
 
 fn default_team_sizes() -> Vec<u8> {

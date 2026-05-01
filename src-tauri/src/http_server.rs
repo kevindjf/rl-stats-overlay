@@ -64,6 +64,18 @@ pub async fn start(state: Arc<AppState>) -> Result<()> {
 }
 
 async fn bind_first_free_port(state: Arc<AppState>) -> Result<TcpListener> {
+    // CLI override (`--http-port`): if a non-zero value is already in state,
+    // respect it strictly. We don't fall back to the scan range so the user
+    // is told plainly when their chosen port is taken.
+    let preset = state.http_port.load(Ordering::SeqCst);
+    if preset != 0 {
+        let addr: SocketAddr = ([127, 0, 0, 1], preset).into();
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|e| anyhow!("failed to bind HTTP server on requested port {preset}: {e}"))?;
+        return Ok(listener);
+    }
+
     for offset in 0..PORT_SCAN_LIMIT {
         let port = PREFERRED_PORT + offset;
         let addr: SocketAddr = ([127, 0, 0, 1], port).into();
@@ -150,19 +162,17 @@ async fn serve_active_boost(State(state): State<Arc<AppState>>) -> Response {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct StateSnapshot {
     connected: bool,
-    #[serde(rename = "playerName")]
     player_name: String,
-    #[serde(rename = "primaryId")]
     primary_id: String,
     session: crate::session::Session,
-    #[serde(rename = "setupDone")]
     setup_done: bool,
-    #[serde(rename = "hudVisible")]
     hud_visible: bool,
-    #[serde(rename = "httpPort")]
     http_port: u16,
+    /// Live match stats — same shape themes/HUD see through the Tauri event.
+    match_stats: crate::state::MatchStats,
 }
 
 async fn api_state(State(state): State<Arc<AppState>>) -> Json<StateSnapshot> {
@@ -176,6 +186,7 @@ async fn api_state(State(state): State<Arc<AppState>>) -> Json<StateSnapshot> {
         setup_done: settings.setup_done,
         hud_visible: settings.hud_visible,
         http_port: state.http_port.load(Ordering::SeqCst),
+        match_stats: state.match_stats.lock().clone(),
     })
 }
 

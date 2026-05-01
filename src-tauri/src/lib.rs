@@ -3,11 +3,12 @@ use std::{
     sync::{atomic::Ordering, Arc},
 };
 
+use clap::Parser;
 use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
+    AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
 };
 use tracing::{info, warn};
 
@@ -25,8 +26,28 @@ use crate::{
     ini_patcher::{DetectedInstall, PatchOutcome},
     session::Session,
     settings::Settings,
-    state::AppState,
+    state::{AppState, MatchStats},
 };
+
+/// CLI flags. Parsed at boot via [`clap`]; `--help` / `--version` exit
+/// cleanly before the GUI is created.
+#[derive(Debug, clap::Parser)]
+#[command(version, about = "Rocket League stats overlay")]
+struct Cli {
+    /// Override the embedded HTTP server port (default: 49124).
+    #[arg(long)]
+    http_port: Option<u16>,
+
+    /// Force a specific PrimaryId — skips auto-detection.
+    /// Format: `Platform|Uid|Splitscreen` (e.g. `Steam|123|0`).
+    #[arg(long)]
+    player_id: Option<String>,
+
+    /// Skip the wizard's auto-INI patch step (assumes the Stats API is
+    /// already enabled).
+    #[arg(long, default_value_t = false)]
+    no_auto_install: bool,
+}
 
 const SETTINGS_WINDOW: &str = "settings";
 const HUD_WINDOW: &str = "hud";
@@ -62,6 +83,13 @@ struct StateSnapshot {
     has_local_platform_candidates: bool,
     /// True when the HUD's position is locked (click-through, drag disabled).
     hud_position_locked: bool,
+    /// When true, the HUD auto-shows on RL connect / auto-hides on disconnect.
+    auto_hide_hud_when_offline: bool,
+    /// Live per-match stats decoded from `UpdateState`. Empty between matches.
+    match_stats: MatchStats,
+    /// True when the app was launched with `--no-auto-install`. The wizard
+    /// uses this to short-circuit the auto-INI-patch step.
+    no_auto_install: bool,
 }
 
 #[tauri::command]
@@ -114,6 +142,9 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
         language: settings.language,
         has_local_platform_candidates: !state.local_platform_candidates.lock().is_empty(),
         hud_position_locked: settings.hud_position_locked,
+        auto_hide_hud_when_offline: settings.auto_hide_hud_when_offline,
+        match_stats: state.match_stats.lock().clone(),
+        no_auto_install: state.no_auto_install.load(Ordering::SeqCst),
     }
 }
 
@@ -249,29 +280,10 @@ fn set_theme_var(
 fn toggle_hud(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<bool, String> {
     let window = hud_window(&app).ok_or("HUD window not initialised")?;
     let now_visible = if window.is_visible().unwrap_or(false) {
-        window.hide().map_err(|e| e.to_string())?;
+        hide_hud_window(&window).map_err(|e| e.to_string())?;
         false
     } else {
-        // The HUD's URL points at our embedded HTTP server, which may not
-        // have been up yet when the webview was first created at app
-        // launch. We force-fetch with a fresh `?t=` query *only on the very
-        // first show* — every subsequent toggle should keep the loaded page
-        // and just call `show()`, otherwise the user sees a flash + font
-        // reload + animation reset every time the HUD is toggled.
-        if !state.hud_loaded.swap(true, Ordering::SeqCst) {
-            let _ = window.eval(
-                "window.location.href = window.location.pathname + '?t=' + Date.now()",
-            );
-        }
-        window.show().map_err(|e| e.to_string())?;
-        // Reapply geometry on every show — Tauri can lose it on hide.
-        let settings = state.settings.lock();
-        if let Some((x, y)) = settings.hud_pos {
-            let _ = window.set_position(PhysicalPosition::new(x, y));
-        }
-        if let Some((w, h)) = settings.hud_size {
-            let _ = window.set_size(PhysicalSize::new(w, h));
-        }
+        show_hud_window(&window, &state).map_err(|e| e.to_string())?;
         true
     };
     {
@@ -280,6 +292,49 @@ fn toggle_hud(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<bool, S
     }
     state.request_save_settings();
     Ok(now_visible)
+}
+
+/// Show the HUD webview, force a one-shot cache-busted reload on the very
+/// first cold show (so the embedded HTTP server has a chance to come up),
+/// and reapply the persisted geometry. Shared between [`toggle_hud`] and
+/// the auto-show listener for `rlstats://connected`.
+fn show_hud_window(
+    window: &WebviewWindow,
+    state: &Arc<AppState>,
+) -> Result<(), tauri::Error> {
+    if !state.hud_loaded.swap(true, Ordering::SeqCst) {
+        let _ = window.eval(
+            "window.location.href = window.location.pathname + '?t=' + Date.now()",
+        );
+    }
+    window.show()?;
+    let settings = state.settings.lock();
+    if let Some((x, y)) = settings.hud_pos {
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    }
+    if let Some((w, h)) = settings.hud_size {
+        let _ = window.set_size(PhysicalSize::new(w, h));
+    }
+    Ok(())
+}
+
+fn hide_hud_window(window: &WebviewWindow) -> Result<(), tauri::Error> {
+    window.hide()
+}
+
+/// Toggle the "auto-show HUD on RL connect / auto-hide on disconnect"
+/// preference. Persisted to `settings.json` so it survives a restart.
+#[tauri::command]
+fn set_auto_hide_hud_when_offline(
+    enabled: bool,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    {
+        let mut s = state.settings.lock();
+        s.auto_hide_hud_when_offline = enabled;
+    }
+    state.request_save_settings();
+    Ok(())
 }
 
 /// Force-refresh the HUD webview. Useful after editing theme files in
@@ -543,6 +598,11 @@ fn install_tray(app: &AppHandle) -> tauri::Result<()> {
 // ---------- App bootstrap ----------------------------------------------------
 
 pub fn run() {
+    // Parse CLI flags first so `--help` / `--version` exit cleanly without
+    // bringing up the Tauri window. `Cli::parse()` calls `std::process::exit`
+    // internally for those paths.
+    let cli = Cli::parse();
+
     // We keep the daily appender's flush guard alive for the entire process —
     // dropping it would silently lose the tail of buffered log lines on exit.
     // We `mem::forget` it because tracing's global subscriber lives until
@@ -597,6 +657,13 @@ pub fn run() {
         info!("previous session was older than 6h, starting fresh");
         let _ = loaded.save();
     }
+    // `--player-id`: override the persisted PrimaryId for this run only.
+    // We don't persist it — the flag is meant for ephemeral / OBS-only
+    // headless setups where the user wants a known identity per launch.
+    if let Some(ref pid) = cli.player_id {
+        info!(player_id = %pid, "CLI override for primary_id");
+        loaded.primary_id = pid.clone();
+    }
     // Detect Steam / Epic local IDs once at boot. Cheap (a couple of file
     // reads); used by `find_local_player` to arbitrate the user across
     // `Players[].PrimaryId` without requiring them to type a name.
@@ -606,6 +673,15 @@ pub fn run() {
         "local platform candidates detected"
     );
     let app_state = AppState::new(loaded, candidates);
+    // Apply `--no-auto-install` to shared state so the wizard frontend can
+    // read it via `StateSnapshot::no_auto_install`.
+    app_state.no_auto_install.store(cli.no_auto_install, Ordering::SeqCst);
+    // Apply `--http-port` if provided. The HTTP server reads this on bind:
+    // a non-zero value is treated as "use this exact port, don't scan".
+    if let Some(port) = cli.http_port {
+        app_state.http_port.store(port, Ordering::SeqCst);
+        info!(http_port = port, "CLI override for http_port");
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -633,6 +709,7 @@ pub fn run() {
             set_count_team_sizes,
             set_language,
             set_hud_locked,
+            set_auto_hide_hud_when_offline,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -741,6 +818,30 @@ pub fn run() {
                 });
             }
             ws_client::spawn(handle.clone(), app_state.clone());
+
+            // Auto-show / auto-hide the HUD based on RL connection — only
+            // active when the user opted in via `auto_hide_hud_when_offline`.
+            // The `rlstats://connected` event payload is a JSON-encoded bool
+            // (`"true"` / `"false"`); parse defensively and ignore other
+            // shapes so unrelated emits never flap the window.
+            {
+                let handle_listen = handle.clone();
+                let state_listen = app_state.clone();
+                handle.listen("rlstats://connected", move |event| {
+                    let connected = serde_json::from_str::<bool>(event.payload())
+                        .ok()
+                        .unwrap_or(false);
+                    if !state_listen.settings.lock().auto_hide_hud_when_offline {
+                        return;
+                    }
+                    let Some(window) = hud_window(&handle_listen) else { return };
+                    if connected {
+                        let _ = show_hud_window(&window, &state_listen);
+                    } else {
+                        let _ = hide_hud_window(&window);
+                    }
+                });
+            }
 
             // Settings window: closing the "X" hides to the tray instead of
             // quitting, so the HUD and the global hotkey stay live in the

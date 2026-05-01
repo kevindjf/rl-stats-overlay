@@ -4,7 +4,7 @@
 
 :root {
   --panel-w: 200px;
-  --panel-h: 100px;
+  --panel-h: 124px;
   --panel-radius: 5px;
   --panel-pad-x: 12px;
   --panel-pad-y: 10px;
@@ -78,6 +78,7 @@ html, body {
 .row .value.loss { color: var(--color-loss); }
 
 .row.streak-row .value { color: var(--color-streak-icon); }
+.row.match-row .value.match { color: var(--color-text); font-weight: 600; }
 
 .conn-dot {
   position: absolute;

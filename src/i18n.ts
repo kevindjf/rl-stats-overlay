@@ -47,6 +47,10 @@ const fr: Catalog = {
   "hud.step": "Pas",
   "hud.lock": "Verrouiller la position",
   "hud.lockHint": "Verrouillé : le HUD redevient transparent au clic (les inputs passent au jeu) et le drag/clic-droit est désactivé.",
+  "hud.autoHide": "Masquer auto quand RL est fermé",
+  "hud.matchTitle": "Match en cours",
+  "hud.matchHint": "G/S/Sh/A — buts, arrêts, tirs, passes décisives.",
+  "hud.matchEmpty": "En attente du prochain match…",
 
   // OBS panel
   "obs.title": "OBS Browser Source",
@@ -147,6 +151,10 @@ const en: Catalog = {
   "hud.step": "Step",
   "hud.lock": "Lock position",
   "hud.lockHint": "Locked: the HUD becomes click-through again (cursor events pass to the game) and drag / right-click are disabled.",
+  "hud.autoHide": "Auto-hide when RL is offline",
+  "hud.matchTitle": "Current match",
+  "hud.matchHint": "G/S/Sh/A — goals, saves, shots, assists.",
+  "hud.matchEmpty": "Waiting for the next match…",
 
   "obs.title": "OBS Browser Source",
   "obs.note": "Paste this URL into an OBS <em>Browser Source</em>, dimensions <code>400 × 300</code>.",
