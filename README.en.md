@@ -96,6 +96,10 @@ See [docs/development.md](docs/development.md) for:
 - Building locally
 - Project architecture
 
+## 🙏 Credits
+
+Inspired by [**RocketStats** by Lyliya](https://github.com/Lyliya/RocketStats), a long-standing reference for Rocket League streamer overlays. RL Stats Overlay is an independent rewrite (Tauri + Rust + TypeScript) focused on the **official Psyonix Stats API** and Easy Anti-Cheat compatibility.
+
 ## 📜 License
 
 [MIT](./LICENSE) — project not affiliated with Psyonix or Epic Games. *Rocket League* is a registered trademark of Psyonix LLC.
