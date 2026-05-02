@@ -109,6 +109,23 @@ async fn run_connection(
     let mut stream = TcpStream::connect((RL_STATS_API_HOST, RL_STATS_API_PORT)).await?;
     info!("connected to Rocket League Stats API on {RL_STATS_API_HOST}:{RL_STATS_API_PORT}");
 
+    // TCP keep-alive: probe after 1 s of idle, then every 1 s. Caps
+    // disconnect detection at ~2-4 s on Windows when RL exits without
+    // sending FIN (which it does — even on "Quit", it just terminates the
+    // process). Without keep-alive the kernel default would be 2 hours.
+    // We're on localhost so the per-second probe cost is negligible.
+    // `with_retries` isn't available on Windows in socket2, so we accept
+    // the OS default count there. Best-effort — log and continue.
+    {
+        let sock = socket2::SockRef::from(&stream);
+        let ka = socket2::TcpKeepalive::new()
+            .with_time(Duration::from_secs(1))
+            .with_interval(Duration::from_secs(1));
+        if let Err(err) = sock.set_tcp_keepalive(&ka) {
+            warn!(?err, "failed to enable TCP keep-alive on stats API socket");
+        }
+    }
+
     // Re-scan local Steam/Epic identifiers on every WS connect. A user who
     // closes RL, switches Epic accounts in the launcher (writing a fresh
     // `.dat`), and relaunches RL would otherwise be stuck with the boot-time

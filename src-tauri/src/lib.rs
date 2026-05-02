@@ -324,8 +324,14 @@ fn hide_hud_window(window: &WebviewWindow) -> Result<(), tauri::Error> {
 
 /// Toggle the "auto-show HUD on RL connect / auto-hide on disconnect"
 /// preference. Persisted to `settings.json` so it survives a restart.
+///
+/// Also reconciles the HUD against the *current* connection state — the
+/// `rlstats://connected` listener only fires on transitions, so without
+/// this immediate apply the user could enable the setting while RL is
+/// already offline and the HUD would stay visible until the next reconnect.
 #[tauri::command]
 fn set_auto_hide_hud_when_offline(
+    app: AppHandle,
     enabled: bool,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
@@ -334,6 +340,29 @@ fn set_auto_hide_hud_when_offline(
         s.auto_hide_hud_when_offline = enabled;
     }
     state.request_save_settings();
+    if let Some(window) = hud_window(&app) {
+        if enabled {
+            // Just turned ON — reconcile to the live connection state so the
+            // HUD reflects "RL connected?" right now, not just on the next
+            // transition.
+            if state.connected.load(Ordering::SeqCst) {
+                let _ = show_hud_window(&window, &state);
+            } else {
+                let _ = hide_hud_window(&window);
+            }
+        } else {
+            // Just turned OFF — hand control back to the user's manual
+            // preference (`settings.hud_visible`, set by the dashboard's
+            // Show/Hide buttons). Without this, a HUD hidden by auto-hide
+            // would stay hidden indefinitely after the toggle is disabled.
+            let want_visible = state.settings.lock().hud_visible;
+            if want_visible {
+                let _ = show_hud_window(&window, &state);
+            } else {
+                let _ = hide_hud_window(&window);
+            }
+        }
+    }
     Ok(())
 }
 

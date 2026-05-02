@@ -53,6 +53,11 @@ tracing-appender = "0.2"
 # CLI flags
 clap = { version = "4", features = ["derive"] }
 
+# TCP socket-level keepalive — bounds the time it takes us to detect that
+# Rocket League went away (graceful close → near-instant; ungraceful close /
+# crash → ~11 s instead of the kernel default of 2 hours).
+socket2 = { version = "0.5", features = ["all"] }
+
 # Windows-only — registry lookups for Steam / Epic install paths
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.52"
