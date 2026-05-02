@@ -207,6 +207,45 @@ fn reset_session(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<(), 
     Ok(())
 }
 
+/// Atomic bulk-edit of every session counter — recovery for missed
+/// match-end events, app crashes mid-match, manual cleanup. The data
+/// is local; "anti-cheating" guards would only get in the user's way.
+/// Caller passes raw `i64` values; we clamp to each field's actual
+/// type (`u32` for counts, `i32` for streak).
+#[tauri::command]
+fn set_session_full(
+    app: AppHandle,
+    wins: i64,
+    losses: i64,
+    streak: i64,
+    best_win_streak: i64,
+    best_loss_streak: i64,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let clamp_u32 = |v: i64| v.max(0).min(u32::MAX as i64) as u32;
+    let clamp_i32 = |v: i64| v.max(i32::MIN as i64).min(i32::MAX as i64) as i32;
+    {
+        let mut session = state.session.lock();
+        session.wins = clamp_u32(wins);
+        session.losses = clamp_u32(losses);
+        session.streak = clamp_i32(streak);
+        session.best_win_streak = clamp_u32(best_win_streak);
+        session.best_loss_streak = clamp_u32(best_loss_streak);
+        // Touch last_update so a manual edit doesn't trip the 6h-stale
+        // expiry on next boot.
+        session.last_update = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let snapshot = session.clone();
+        let mut settings = state.settings.lock();
+        settings.session = snapshot;
+    }
+    state.request_save_settings();
+    let _ = app.emit("rlstats://session-changed", ());
+    Ok(())
+}
+
 #[tauri::command]
 fn detect_rocket_league() -> Vec<DetectedInstall> {
     ini_patcher::detect_installations()
@@ -914,6 +953,7 @@ pub fn run() {
             get_state,
             set_player_name,
             reset_session,
+            set_session_full,
             detect_rocket_league,
             patch_ini,
             complete_setup,

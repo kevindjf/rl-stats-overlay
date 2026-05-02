@@ -253,6 +253,76 @@ button.danger:hover {
   font-weight: 700;
   margin-top: 4px;
 }
+/* Editable session values — input styled to look like the big number,
+   no spinners, transparent background until hover/focus. The user can
+   click straight on the value and overwrite it (commit on blur/Enter). */
+.session-edit {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  text-align: center;
+  font: inherit;
+  font-size: 28px !important;
+  font-weight: 800 !important;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: inherit;
+  padding: 2px 4px;
+  margin: 0 auto;
+  transition: background 0.12s, border-color 0.12s;
+}
+.session-edit:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+.session-edit:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--info);
+}
+.session-edit:disabled,
+.session-edit-inline:disabled {
+  cursor: default;
+  opacity: 1; /* Keep value at full readability — it's a value, not a control */
+  -webkit-text-fill-color: inherit; /* Defeat WebKit's auto-greyout */
+}
+/* Hide native number-input spinner buttons across browsers — keeps the
+   layout uniform with the giant centered value. */
+.session-edit::-webkit-outer-spin-button,
+.session-edit::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.session-edit[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Inline mini-inputs in the records sentence (best win / loss streaks). */
+.session-edit-inline {
+  width: 56px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-align: center;
+  font: inherit;
+  font-weight: 700;
+  color: var(--text);
+  padding: 2px 4px;
+  margin: 0 4px;
+}
+.session-edit-inline:focus {
+  outline: none;
+  border-color: var(--info);
+}
+.session-edit-inline::-webkit-outer-spin-button,
+.session-edit-inline::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.session-edit-inline[type="number"] {
+  -moz-appearance: textfield;
+}
 
 /* OBS URL pill */
 .url-pill {

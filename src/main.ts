@@ -185,6 +185,10 @@ function themeById(id: string): ThemeDef | undefined {
 
 const root = document.getElementById("app")!;
 let currentState: StateSnapshot | null = null;
+// Whether the Session panel is in edit mode (inputs enabled + Save/Cancel
+// shown). Module-scoped so the flag survives across renderDashboard()
+// calls. Reset to false after Save / Cancel.
+let isEditingSession = false;
 
 async function refresh(): Promise<StateSnapshot> {
   currentState = await invoke<StateSnapshot>("get_state");
@@ -319,7 +323,6 @@ function renderDashboard() {
   if (!currentState) return;
   const s = currentState;
 
-  const streakLabel = streakDisplay(s.session.streak);
   const obsUrl = s.overlay_url || "starting…";
 
   root.innerHTML = /* html */ `
@@ -337,18 +340,36 @@ function renderDashboard() {
       <section class="panel">
         <div class="panel-header">
           <h2>${t("session.title")}</h2>
-          <button class="ghost" id="btn-reset">${t("session.reset")}</button>
+          <div class="row" style="gap: 6px;">
+            ${isEditingSession
+              ? /* html */ `
+                <button class="ghost" id="btn-session-cancel">${t("session.editCancel")}</button>
+                <button class="primary" id="btn-session-save">${t("session.editSave")}</button>`
+              : /* html */ `
+                <button class="ghost" id="btn-session-edit">${t("session.editStart")}</button>
+                <button class="ghost" id="btn-reset">${t("session.reset")}</button>`
+            }
+          </div>
         </div>
         <div class="session">
-          <div class="stat win"><div class="num">${s.session.wins}</div><div class="lbl">${t("session.wins")}</div></div>
-          <div class="stat loss"><div class="num">${s.session.losses}</div><div class="lbl">${t("session.losses")}</div></div>
+          <div class="stat win">
+            <input class="num session-edit" type="number" data-field="wins" value="${s.session.wins}" min="0" ${isEditingSession ? "" : "disabled"} />
+            <div class="lbl">${t("session.wins")}</div>
+          </div>
+          <div class="stat loss">
+            <input class="num session-edit" type="number" data-field="losses" value="${s.session.losses}" min="0" ${isEditingSession ? "" : "disabled"} />
+            <div class="lbl">${t("session.losses")}</div>
+          </div>
           <div class="stat streak ${s.session.streak > 0 ? "win" : s.session.streak < 0 ? "loss" : ""}">
-            <div class="num">${streakLabel}</div>
+            <input class="num session-edit" type="number" data-field="streak" value="${s.session.streak}" ${isEditingSession ? "" : "disabled"} />
             <div class="lbl">${t("session.streak")}</div>
           </div>
         </div>
-        <p class="muted" style="margin-top: 12px; font-size: 12px;">
-          ${t("session.records", { best_win: s.session.best_win_streak, best_loss: s.session.best_loss_streak })}
+        <p class="muted session-records" style="margin-top: 12px; font-size: 12px;">
+          ${t("session.recordsLeading")}
+          <input class="session-edit-inline" type="number" data-field="best_win_streak" value="${s.session.best_win_streak}" min="0" ${isEditingSession ? "" : "disabled"} />
+          ${t("session.recordsMid")}
+          <input class="session-edit-inline" type="number" data-field="best_loss_streak" value="${s.session.best_loss_streak}" min="0" ${isEditingSession ? "" : "disabled"} />
         </p>
 
         <div class="team-size-filter" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border, rgba(255,255,255,0.08));">
@@ -498,6 +519,52 @@ function renderDashboard() {
 
   document.getElementById("btn-save-name")?.addEventListener("click", onSaveName);
   document.getElementById("btn-reset")?.addEventListener("click", onResetSession);
+  // Session edit toggle. Edit unlocks all 5 fields, Save commits them
+  // atomically via set_session_full, Cancel discards by re-rendering
+  // from the persisted snapshot.
+  document.getElementById("btn-session-edit")?.addEventListener("click", () => {
+    isEditingSession = true;
+    renderDashboard();
+    // Auto-focus the wins field so the user can start typing right away.
+    (document.querySelector<HTMLInputElement>(
+      '.session-edit[data-field="wins"]',
+    ))?.focus();
+  });
+  document.getElementById("btn-session-cancel")?.addEventListener("click", () => {
+    isEditingSession = false;
+    renderDashboard();
+  });
+  document.getElementById("btn-session-save")?.addEventListener("click", async () => {
+    const readField = (field: string): number | null => {
+      const el = document.querySelector<HTMLInputElement>(
+        `.session-edit[data-field="${field}"], .session-edit-inline[data-field="${field}"]`,
+      );
+      if (!el) return null;
+      const v = parseInt(el.value, 10);
+      return Number.isNaN(v) ? null : v;
+    };
+    const wins = readField("wins") ?? currentState!.session.wins;
+    const losses = readField("losses") ?? currentState!.session.losses;
+    const streak = readField("streak") ?? currentState!.session.streak;
+    const best_win_streak =
+      readField("best_win_streak") ?? currentState!.session.best_win_streak;
+    const best_loss_streak =
+      readField("best_loss_streak") ?? currentState!.session.best_loss_streak;
+    try {
+      await invoke("set_session_full", {
+        wins,
+        losses,
+        streak,
+        bestWinStreak: best_win_streak,
+        bestLossStreak: best_loss_streak,
+      });
+      isEditingSession = false;
+      await refresh();
+    } catch (err) {
+      console.error("set_session_full failed", err);
+      alert(String(err));
+    }
+  });
   bindTeamSizeFilter();
   document.getElementById("btn-toggle-hud")?.addEventListener("click", onToggleHud);
   document.getElementById("btn-reload-hud")?.addEventListener("click", onReloadHud);
@@ -856,12 +923,6 @@ async function onOpenUrl() {
 }
 
 // ----- Helpers --------------------------------------------------------------
-
-function streakDisplay(streak: number): string {
-  if (streak === 0) return t("session.streakEmpty");
-  if (streak > 0) return `🔥 W${streak}`;
-  return `❄️ L${-streak}`;
-}
 
 function flashButton(id: string, text: string) {
   const el = document.getElementById(id) as HTMLButtonElement | null;
