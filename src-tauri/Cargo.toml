@@ -1,6 +1,6 @@
 [package]
 name = "rl-stats-overlay"
-version = "0.1.5"
+version = "0.1.6"
 description = "Rocket League stats overlays for OBS and in-game HUD"
 authors = ["Kévin De Jesus Ferreira <kevin@kapps-mobile.com>"]
 license = "MIT"
