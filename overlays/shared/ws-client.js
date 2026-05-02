@@ -133,10 +133,18 @@ export async function loadOverlayConfig() {
  * The keys in `vars` are camelCase; this helper converts them to kebab-case
  * for the matching --css-var.
  *
+ * Diff-aware: keys we set on a previous call but that disappear from the new
+ * map are explicitly removed from `:root` and `dataset`. Without this, a
+ * user "Reset" leaves the previous inline override winning over the theme
+ * default until a full page reload. Module-scoped state — fine because
+ * each overlay HTML loads this module exactly once per webview lifetime.
+ *
  * @param {Record<string, string|number|boolean>} vars
  */
+const _appliedThemeKeys = new Set();
 export function applyThemeVars(vars) {
   const root = document.documentElement;
+  const next = new Set();
   for (const [key, raw] of Object.entries(vars || {})) {
     const cssName = "--" + key.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
     if (typeof raw === "boolean") {
@@ -147,7 +155,19 @@ export function applyThemeVars(vars) {
     } else {
       root.style.setProperty(cssName, String(raw));
     }
+    next.add(key);
   }
+  // Drop keys that vanished from `vars` since the previous call — this is the
+  // "Reset" path. Without it, a removed override leaves a stale inline style
+  // on :root that keeps winning over the theme's CSS default.
+  for (const key of _appliedThemeKeys) {
+    if (next.has(key)) continue;
+    const cssName = "--" + key.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+    root.style.removeProperty(cssName);
+    delete root.dataset[key];
+  }
+  _appliedThemeKeys.clear();
+  for (const k of next) _appliedThemeKeys.add(k);
 }
 
 /**

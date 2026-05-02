@@ -248,7 +248,6 @@ fn set_theme(
         settings.save().map_err(|e| e.to_string())?;
     }
     reload_hud_with_cache_bust(&app);
-    let _ = app.emit("rlstats://theme-changed", ());
     Ok(())
 }
 
@@ -275,11 +274,40 @@ fn set_theme_var(
     {
         let mut settings = state.settings.lock();
         settings.set_theme_var(key, value);
-        settings.save().map_err(|e| e.to_string())?;
     }
-    // Live-update the in-game HUD without a full reload by re-fetching
-    // /api/config from inside the existing webview.
-    if let Some(hud) = hud_window(&app) {
+    // Async-persist to disk via the coalescing writer — keeps slider drags
+    // from hammering the disk on every tick.
+    state.request_save_settings();
+    push_theme_vars_to_hud(&app);
+    let _ = app.emit("rlstats://theme-vars-changed", ());
+    Ok(())
+}
+
+/// Wipe every override for the active theme in one call. Faster than the
+/// frontend looping `set_theme_var(key, null)` per-var (which races with
+/// itself) AND uses the diff-aware `applyThemeVars` so the HUD repaints to
+/// the theme defaults without a full reload.
+#[tauri::command]
+fn reset_theme_vars(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    {
+        let mut settings = state.settings.lock();
+        let active = settings.theme.clone();
+        settings.theme_overrides.remove(&active);
+    }
+    state.request_save_settings();
+    push_theme_vars_to_hud(&app);
+    let _ = app.emit("rlstats://theme-vars-changed", ());
+    Ok(())
+}
+
+/// Re-fetch `/api/config` from inside the HUD webview and reapply theme
+/// vars without a page reload. Shared by `set_theme_var` and
+/// `reset_theme_vars` so they stay perfectly in sync.
+fn push_theme_vars_to_hud(app: &AppHandle) {
+    if let Some(hud) = hud_window(app) {
         let _ = hud.eval(
             r#"
             (async () => {
@@ -292,8 +320,6 @@ fn set_theme_var(
             "#,
         );
     }
-    let _ = app.emit("rlstats://theme-vars-changed", ());
-    Ok(())
 }
 
 #[tauri::command]
@@ -896,6 +922,7 @@ pub fn run() {
             set_hud_geometry,
             set_theme,
             set_theme_var,
+            reset_theme_vars,
             quit_app,
             list_themes,
             open_themes_folder,

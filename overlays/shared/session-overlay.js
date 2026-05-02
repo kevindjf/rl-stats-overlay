@@ -75,8 +75,32 @@ export async function startSessionOverlay(opts = {}) {
   // Initial paint with zeros so themes show up before the first poll lands.
   render({ wins: 0, losses: 0, streak: 0 });
 
-  const cfg = await loadOverlayConfig();
+  let cfg = await loadOverlayConfig();
   applyThemeVars(cfg.themeVars);
+
+  // Live theme updates for OBS (and any non-Tauri consumer): the in-game
+  // HUD is told to repaint via Tauri's webview.eval when settings change,
+  // but the OBS Browser Source has no such backchannel — so we re-fetch
+  // /api/config on a slow loop and reapply when something changed. Cheap
+  // (200-byte JSON, every 3s) and lets streamers tweak themes without
+  // refreshing OBS by hand.
+  setInterval(async () => {
+    try {
+      const fresh = await loadOverlayConfig();
+      // Switching active theme: full reload — themes ship their own HTML
+      // + CSS bundle, swapping CSS vars alone won't change the layout.
+      if (fresh.theme !== cfg.theme) {
+        window.location.reload();
+        return;
+      }
+      // Theme vars: shallow JSON-equality check, then diff-aware apply
+      // (which removes vanished keys to fix the "Reset" stale-style bug).
+      if (JSON.stringify(fresh.themeVars) !== JSON.stringify(cfg.themeVars)) {
+        applyThemeVars(fresh.themeVars);
+        cfg = fresh;
+      }
+    } catch (_) { /* network blip — try again next tick */ }
+  }, 3000);
 
   /**
    * Update the optional per-match readout. Themes wire it by including

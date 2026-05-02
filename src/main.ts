@@ -733,24 +733,24 @@ function bindThemeListeners() {
     await refresh();
   });
 
-  // Reset all overrides for the active theme
+  // Reset all overrides for the active theme — single backend call so the
+  // HUD repaints once with the diff-aware applyThemeVars (looping
+  // set_theme_var(null) per-var raced with itself and left stale CSS).
   document.getElementById("btn-reset-theme")?.addEventListener("click", async () => {
     const def = themeById(currentState?.theme ?? "");
     if (!def) return;
     if (!confirm(t("theme.resetConfirm"))) return;
-    for (const v of def.vars) {
-      await invoke("set_theme_var", { key: v.key, value: null });
-    }
+    await invoke("reset_theme_vars");
     await refresh();
   });
 
-  // Per-var input changes commit only on `change` (color picker close,
-  // slider release, checkbox click) so we never invoke set_theme_var
-  // mid-interaction. This keeps native pickers open as long as the user
-  // wants and is the standard "settings dialog" pattern.
-  //
-  // Sliders still get live numeric feedback through `input` — but only
-  // for the local text label, the persist itself waits for `change`.
+  // Per-var input changes:
+  //   - color: commit on `change` (after picker closes — `input` fires on
+  //     every cursor move, that'd be hundreds of writes per drag).
+  //   - boolean: commit on `change` (single click).
+  //   - number (slider): commit on `input` with a 100ms debounce so the
+  //     HUD repaints live while dragging, then a final commit on `change`
+  //     so the persisted value matches the released position exactly.
   const commit = (target: HTMLInputElement) => {
     const key = target.dataset.key!;
     const kind = target.dataset.kind!;
@@ -771,11 +771,19 @@ function bindThemeListeners() {
     else if (kind === "color") code.textContent = target.value;
   };
 
+  // Per-element debounce timers for number sliders.
+  const sliderDebounce = new WeakMap<HTMLInputElement, number>();
   document.querySelectorAll<HTMLInputElement>(".var-input").forEach((el) => {
     el.addEventListener("change", () => commit(el));
     if (el.dataset.kind === "number") {
-      // Live numeric readout while dragging, no persist yet.
-      el.addEventListener("input", () => updateLocalLabel(el));
+      el.addEventListener("input", () => {
+        updateLocalLabel(el);
+        // Live HUD repaint while dragging — debounced so a fast slider
+        // doesn't flood the backend with 60+ writes per second.
+        const prev = sliderDebounce.get(el);
+        if (prev != null) window.clearTimeout(prev);
+        sliderDebounce.set(el, window.setTimeout(() => commit(el), 100));
+      });
     }
   });
 
