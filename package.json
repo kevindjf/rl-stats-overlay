@@ -1,6 +1,6 @@
 {
   "name": "rl-stats-overlay",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Rocket League stats overlays for OBS and in-game HUD, powered by the official Psyonix Stats API. EAC-safe.",
   "license": "MIT",
   "private": true,
