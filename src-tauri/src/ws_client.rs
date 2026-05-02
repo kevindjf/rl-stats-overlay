@@ -294,7 +294,18 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
 
     match payload.event.as_str() {
         "UpdateState" => on_update_state(app, state, &data),
-        "MatchEnded" => on_match_ended(app, state, &data),
+        "MatchEnded" => {
+            // The actual whistle. Clear the in-progress flag here (not on
+            // MatchDestroyed) so the launcher / settings unhide as soon as
+            // the scoreboard appears. MatchDestroyed only fires when the
+            // user leaves the lobby — it never fires in private matches
+            // where you stay on the same custom lobby. Tracking gameplay,
+            // not lobby lifetime, is what users actually want.
+            if state.match_in_progress.swap(false, Ordering::SeqCst) {
+                let _ = app.emit("rlstats://match-in-progress", false);
+            }
+            on_match_ended(app, state, &data);
+        }
         "MatchInitialized" | "MatchCreated" => {
             reset_match_stats(app, state);
             // Mark the match window — drives the launcher's auto-hide and
@@ -307,6 +318,8 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
         }
         "MatchDestroyed" => {
             reset_match_stats(app, state);
+            // Defensive: if MatchEnded never fired (RL crash mid-match), clear
+            // here so we don't get stuck with the launcher hidden forever.
             if state.match_in_progress.swap(false, Ordering::SeqCst) {
                 let _ = app.emit("rlstats://match-in-progress", false);
             }
