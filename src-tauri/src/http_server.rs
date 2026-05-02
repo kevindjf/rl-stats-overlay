@@ -55,6 +55,9 @@ pub async fn start(state: Arc<AppState>) -> Result<()> {
         .route("/hud/toggle-lock", post(hud_toggle_lock))
         .route("/session/reset", post(session_reset))
         .route("/app/quit", post(app_quit))
+        // Floating launcher badge → settings window. POSTed from the
+        // launcher's webview (loaded over plain HTTP, no `window.__TAURI__`).
+        .route("/launcher/open-settings", post(launcher_open_settings))
         .with_state(state);
 
     axum::serve(listener, router.into_make_service())
@@ -173,6 +176,11 @@ struct StateSnapshot {
     http_port: u16,
     /// Live match stats — same shape themes/HUD see through the Tauri event.
     match_stats: crate::state::MatchStats,
+    /// Whether the floating launcher badge is enabled in user settings.
+    /// Surfaced here so OBS / external tooling can reflect the same toggle.
+    launcher_enabled: bool,
+    /// True between MatchInitialized/MatchCreated and MatchDestroyed.
+    match_in_progress: bool,
 }
 
 async fn api_state(State(state): State<Arc<AppState>>) -> Json<StateSnapshot> {
@@ -187,6 +195,8 @@ async fn api_state(State(state): State<Arc<AppState>>) -> Json<StateSnapshot> {
         hud_visible: settings.hud_visible,
         http_port: state.http_port.load(Ordering::SeqCst),
         match_stats: state.match_stats.lock().clone(),
+        launcher_enabled: settings.launcher_enabled,
+        match_in_progress: state.match_in_progress.load(Ordering::SeqCst),
     })
 }
 
@@ -258,6 +268,30 @@ async fn app_quit(State(state): State<Arc<AppState>>) -> Response {
     if let Some(app) = state.app_handle.get() {
         app.exit(0);
     }
+    StatusCode::OK.into_response()
+}
+
+/// Floating launcher badge → bring Settings to the front. Mirrors the
+/// `show_settings_window` helper in `lib.rs` (kept inline here to avoid a
+/// pub re-export just for one call site). Returns 404 if the Settings
+/// window doesn't exist — graceful no-op for the unlikely OBS-browser-source
+/// case where the launcher HTML is loaded without Tauri (the page just
+/// ignores the failure and stays on screen).
+async fn launcher_open_settings(State(state): State<Arc<AppState>>) -> Response {
+    let app = match state.app_handle.get() {
+        Some(a) => a,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, "app not ready").into_response(),
+    };
+    let win = match app.get_webview_window("settings") {
+        Some(w) => w,
+        None => return (StatusCode::NOT_FOUND, "no settings window").into_response(),
+    };
+    let _ = win.show();
+    let _ = win.unminimize();
+    let _ = win.set_focus();
+    state
+        .user_wants_settings_open
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     StatusCode::OK.into_response()
 }
 

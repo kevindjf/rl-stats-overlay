@@ -90,6 +90,14 @@ pub struct AppState {
     /// short-circuits the auto-INI-patch step (the user is asserting that
     /// the Stats API is already enabled). Surface via [`StateSnapshot`].
     pub no_auto_install: AtomicBool,
+    /// True between MatchInitialized/MatchCreated and MatchDestroyed.
+    /// Drives the launcher's auto-hide and the Settings window's auto-hide.
+    pub match_in_progress: AtomicBool,
+    /// True when the user explicitly opened the Settings window (via tray
+    /// click, launcher click, or first boot). Set false when the user clicks
+    /// the X. Used to suppress the auto-hide-on-match-start when the window
+    /// was already invisible.
+    pub user_wants_settings_open: AtomicBool,
 }
 
 impl AppState {
@@ -109,6 +117,8 @@ impl AppState {
             local_platform_candidates: Mutex::new(local_platform_candidates),
             match_stats: Mutex::new(MatchStats::default()),
             no_auto_install: AtomicBool::new(false),
+            match_in_progress: AtomicBool::new(false),
+            user_wants_settings_open: AtomicBool::new(false),
         })
     }
 

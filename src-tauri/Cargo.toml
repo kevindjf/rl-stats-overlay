@@ -58,9 +58,18 @@ clap = { version = "4", features = ["derive"] }
 # crash → ~11 s instead of the kernel default of 2 hours).
 socket2 = { version = "0.5", features = ["all"] }
 
-# Windows-only — registry lookups for Steam / Epic install paths
+# Windows-only — registry lookups for Steam / Epic install paths,
+# plus a process-snapshot probe used by `rl_process` to detect when
+# RocketLeague.exe vanishes (the Stats API socket gives no FIN on a
+# user-clicked Quit, and Windows hard-codes 10 keep-alive probes, so
+# kernel-level disconnect detection takes ~8 s — polling the process
+# list collapses that to <1 s).
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.52"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_ToolHelp",
+] }
 
 [profile.release]
 opt-level = "s"

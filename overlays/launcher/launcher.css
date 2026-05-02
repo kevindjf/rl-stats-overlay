@@ -1,0 +1,61 @@
+/* Floating launcher badge — pinned to the left edge of the primary monitor.
+ * The Tauri window itself is 56x56 logical px (sized in lib.rs by scale
+ * factor); this stylesheet only paints the visible disc, with `clip-path`
+ * making the visual round but leaving the OS hit-zone square (Q5: ~8 px
+ * forgiveness around the circle, no `set_ignore_cursor_events` toggling). */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  /* Block accidental drag-selection / right-click menus inside the badge.
+   * The window is non-resizable and non-draggable in v1. */
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+}
+
+.launcher-disc {
+  position: fixed;
+  inset: 0;
+  width: 56px;
+  height: 56px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  background: rgba(20, 22, 28, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+  transition: transform 120ms ease, opacity 120ms ease;
+  /* Visual circle clip — the OS window stays square (see Q5). */
+  clip-path: circle(50%);
+}
+
+.launcher-disc:hover {
+  opacity: 1;
+  transform: scale(1.06);
+}
+
+.launcher-disc:active {
+  transform: scale(0.92);
+}
+
+.launcher-disc:focus {
+  outline: none;
+}
+
+.launcher-disc img {
+  width: 36px;
+  height: 36px;
+  pointer-events: none;
+  display: block;
+}

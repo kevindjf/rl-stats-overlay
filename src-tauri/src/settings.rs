@@ -16,6 +16,7 @@ const SETTINGS_FILE: &str = "settings.json";
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
     /// In-game display name configured by the user.
+    #[serde(default)]
     pub player_name: String,
     /// Stable platform identifier captured from the first match
     /// (e.g. "Epic|abc123|0"). Survives name changes in-game.
@@ -67,6 +68,12 @@ pub struct Settings {
     /// users who learned the manual show/hide buttons.
     #[serde(default)]
     pub auto_hide_hud_when_offline: bool,
+    /// When true, a small floating launcher badge is shown on the left edge
+    /// of the primary monitor. Clicking it brings the Settings window to the
+    /// front. Auto-hidden during a match (see `AppState::match_in_progress`).
+    /// Defaults to true so the badge is discoverable on first launch.
+    #[serde(default = "default_launcher_enabled")]
+    pub launcher_enabled: bool,
 }
 
 fn default_team_sizes() -> Vec<u8> {
@@ -79,6 +86,10 @@ fn default_theme() -> String {
 
 fn default_language() -> String {
     "auto".into()
+}
+
+fn default_launcher_enabled() -> bool {
+    true
 }
 
 impl Settings {
@@ -117,11 +128,19 @@ impl Settings {
     pub fn load() -> Result<Self> {
         let path = settings_path()?;
         if !path.exists() {
-            return Ok(Self::default());
+            // Round-trip an empty JSON object through serde so every
+            // `#[serde(default = "...")]` fires (e.g. `launcher_enabled` =
+            // true). `Self::default()` would only honour `#[derive(Default)]`,
+            // which uses the type's zero value — wrong for fields whose
+            // sensible default is non-zero.
+            return Ok(serde_json::from_str("{}").unwrap_or_default());
         }
         let data = fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
-        let parsed: Self = serde_json::from_str(&data).unwrap_or_default();
+        // Same trick on parse failure: prefer serde-defaulted values over
+        // `Default::default()` so non-zero defaults survive a corrupt file.
+        let parsed: Self = serde_json::from_str(&data)
+            .unwrap_or_else(|_| serde_json::from_str("{}").unwrap_or_default());
         Ok(parsed)
     }
 
@@ -195,5 +214,22 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let back: Settings = serde_json::from_str(&json).unwrap();
         assert!(back.hud_position_locked);
+    }
+
+    /// Loading an "empty" persisted Settings (no file or `{}`) must give the
+    /// user a true `launcher_enabled` so the floating badge is discoverable
+    /// on first launch — and a deserialise round-trip preserves the value.
+    #[test]
+    fn launcher_enabled_defaults_true_and_round_trips() {
+        // serde-default path: empty JSON should give launcher_enabled = true.
+        let fresh: Settings = serde_json::from_str("{}").unwrap();
+        assert!(fresh.launcher_enabled);
+
+        // Round-trip a disabled state — the explicit `false` must survive.
+        let mut s: Settings = serde_json::from_str("{}").unwrap();
+        s.launcher_enabled = false;
+        let json = serde_json::to_string(&s).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert!(!back.launcher_enabled);
     }
 }

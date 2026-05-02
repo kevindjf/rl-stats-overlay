@@ -36,6 +36,13 @@ const fr: Catalog = {
   "player.detectedWaiting": "En attente du premier match…",
   "player.detectedNote": "Pseudo détecté automatiquement à partir de ton compte Steam/Epic. Aucune saisie requise.",
 
+  // Apparence panel — groups the launcher visibility + HUD lock + auto-hide
+  // toggles that used to live in the HUD panel. Keeps "look & feel" knobs
+  // in one place so the HUD panel stays focused on geometry / show-hide.
+  "appearance.title": "Apparence",
+  "launcher.enable": "Afficher le bouton flottant",
+  "launcher.enableHint": "Petit rond cliquable sur le bord gauche de l'écran. Ouvre cette fenêtre. Auto-masqué pendant un match.",
+
   // HUD panel
   "hud.title": "HUD en jeu",
   "hud.note": "Affiche l'overlay en fenêtre transparente par-dessus Rocket League. Fonctionne uniquement en <strong>plein écran fenêtré (borderless)</strong>.",
@@ -140,6 +147,11 @@ const en: Catalog = {
   "player.savePrompt": "Enter a name before saving.",
   "player.detectedWaiting": "Waiting for the first match…",
   "player.detectedNote": "Auto-detected from your Steam/Epic account. No input needed.",
+
+  // Apparence (Appearance) panel — see French catalog above.
+  "appearance.title": "Appearance",
+  "launcher.enable": "Show floating launcher",
+  "launcher.enableHint": "Small clickable circle on the left edge of the screen. Opens this window. Auto-hidden during a match.",
 
   "hud.title": "In-game HUD",
   "hud.note": "Displays the overlay as a transparent window over Rocket League. Works only in <strong>borderless fullscreen</strong>.",

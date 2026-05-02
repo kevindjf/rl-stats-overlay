@@ -8,13 +8,16 @@ use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
+    webview::WebviewWindowBuilder,
+    AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl,
+    WebviewWindow,
 };
 use tracing::{info, warn};
 
 mod http_server;
 mod ini_patcher;
 mod platform_detect;
+mod rl_process;
 mod session;
 mod settings;
 mod settings_writer;
@@ -51,6 +54,13 @@ struct Cli {
 
 const SETTINGS_WINDOW: &str = "settings";
 const HUD_WINDOW: &str = "hud";
+const LAUNCHER_WINDOW: &str = "launcher";
+
+/// Visual diameter of the floating launcher badge, in *logical* pixels at the
+/// primary monitor's scale factor. The CSS round shape (`clip-path: circle`)
+/// fills this exactly; the OS hit-zone is the same square (no pixel-perfect
+/// click-through — see Q5 in the design notes).
+const LAUNCHER_LOGICAL_DIAMETER: f64 = 56.0;
 
 // ---------- Tauri commands exposed to the frontend ---------------------------
 
@@ -90,6 +100,13 @@ struct StateSnapshot {
     /// True when the app was launched with `--no-auto-install`. The wizard
     /// uses this to short-circuit the auto-INI-patch step.
     no_auto_install: bool,
+    /// True when the floating launcher badge should be created on app start
+    /// and re-shown between matches.
+    launcher_enabled: bool,
+    /// True between MatchInitialized/MatchCreated and MatchDestroyed. The
+    /// dashboard uses this to grey out controls that are pointless mid-match
+    /// and to mirror the launcher's hidden state.
+    match_in_progress: bool,
 }
 
 #[tauri::command]
@@ -104,6 +121,7 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
     };
     let theme = settings.theme.clone();
     let theme_vars = settings.current_theme_vars();
+    let launcher_enabled = settings.launcher_enabled;
 
     // Pull HUD geometry live from the OS window first (it reflects manual
     // drags), and fall back to the persisted values if the window does not
@@ -145,6 +163,8 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
         auto_hide_hud_when_offline: settings.auto_hide_hud_when_offline,
         match_stats: state.match_stats.lock().clone(),
         no_auto_install: state.no_auto_install.load(Ordering::SeqCst),
+        launcher_enabled,
+        match_in_progress: state.match_in_progress.load(Ordering::SeqCst),
     }
 }
 
@@ -425,6 +445,35 @@ fn set_hud_locked(
     Ok(())
 }
 
+/// Toggle the floating launcher badge on/off. When enabled and out-of-match,
+/// the badge is created on the left edge of the primary monitor; when
+/// disabled, the existing window is *closed* (not hidden) so a re-enable
+/// rebuilds it cleanly with fresh geometry.
+#[tauri::command]
+fn set_launcher_enabled(
+    app: AppHandle,
+    enabled: bool,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    {
+        let mut s = state.settings.lock();
+        s.launcher_enabled = enabled;
+    }
+    state.request_save_settings();
+    let state_arc = state.inner().clone();
+    reconcile_launcher_visibility(&app, &state_arc);
+    Ok(())
+}
+
+/// Click handler for the floating launcher badge — brings the Settings
+/// window to the front. Mirrors the tray-icon left-click path; the only
+/// reason this is a separate command is to make it explicit in invoke
+/// permission rules and easier to grep in logs.
+#[tauri::command]
+fn open_settings_from_launcher(app: AppHandle) {
+    show_settings_window(&app);
+}
+
 /// Discovery of every installed theme — bundled + user-dropped.
 /// Called from the settings UI on boot and after the user clicks
 /// "Refresh themes" so a freshly-dropped folder appears without restart.
@@ -530,6 +579,115 @@ fn hud_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(HUD_WINDOW)
 }
 
+fn launcher_window(app: &AppHandle) -> Option<WebviewWindow> {
+    app.get_webview_window(LAUNCHER_WINDOW)
+}
+
+/// Build the floating launcher badge — a small round always-on-top window
+/// pinned to the left edge of the primary monitor, vertically centered.
+/// Stays hidden until [`reconcile_launcher_visibility`] decides to show it
+/// (we don't want a one-frame flash before the in-match check runs).
+///
+/// Returns silently if the HTTP server hasn't bound yet (port 0) — the
+/// setup callback will retry once the bind completes.
+fn create_launcher_window(handle: &AppHandle) -> tauri::Result<()> {
+    if launcher_window(handle).is_some() {
+        return Ok(());
+    }
+    let state = match handle.try_state::<Arc<AppState>>() {
+        Some(s) => s,
+        None => return Ok(()),
+    };
+    let port = state.http_port.load(Ordering::SeqCst);
+    if port == 0 {
+        // HTTP server not yet bound — retry later. Returning Ok keeps the
+        // setup chain quiet; the caller will reconcile when the port lands.
+        return Ok(());
+    }
+
+    let url = format!("http://localhost:{port}/overlays/launcher/launcher.html");
+    let parsed_url: tauri::Url = url
+        .parse()
+        .map_err(|e: <tauri::Url as std::str::FromStr>::Err| {
+            tauri::Error::AssetNotFound(e.to_string())
+        })?;
+    let win = WebviewWindowBuilder::new(handle, LAUNCHER_WINDOW, WebviewUrl::External(parsed_url))
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .focused(false)
+        .shadow(false)
+        .visible(false)
+        .build()?;
+
+    // Probe the primary monitor *after* build so we can use the same window
+    // handle to query the OS — `AppHandle::primary_monitor` is also fine but
+    // this keeps every geometry decision next to the window it affects.
+    if let Ok(Some(monitor)) = win.primary_monitor() {
+        let scale = monitor.scale_factor().max(1.0);
+        let physical_diameter =
+            (LAUNCHER_LOGICAL_DIAMETER * scale).round().max(16.0) as u32;
+        let monitor_size = monitor.size();
+        let monitor_pos = monitor.position();
+        // Left edge of the monitor, vertically centered.
+        let x = monitor_pos.x;
+        let y = monitor_pos.y
+            + ((monitor_size.height as i32 - physical_diameter as i32) / 2).max(0);
+        let _ = win.set_size(PhysicalSize::new(physical_diameter, physical_diameter));
+        let _ = win.set_position(PhysicalPosition::new(x, y));
+    }
+
+    if !state.match_in_progress.load(Ordering::SeqCst) {
+        let _ = win.show();
+    }
+    Ok(())
+}
+
+/// Tear down the launcher window when the user disables the toggle. We use
+/// `.close()` (not `.hide()`) so a re-enable rebuilds it cleanly with fresh
+/// geometry — the user may have moved the primary monitor in the meantime.
+fn destroy_launcher_window(handle: &AppHandle) {
+    if let Some(win) = launcher_window(handle) {
+        let _ = win.close();
+    }
+}
+
+/// Single point of truth for the launcher's visibility. Called from setup,
+/// the `set_launcher_enabled` command, and the `match-in-progress` listener.
+/// Cheap enough to invoke on every transition — no work is done if the state
+/// already matches.
+fn reconcile_launcher_visibility(handle: &AppHandle, state: &Arc<AppState>) {
+    let enabled = state.settings.lock().launcher_enabled;
+    let in_match = state.match_in_progress.load(Ordering::SeqCst);
+
+    if !enabled {
+        destroy_launcher_window(handle);
+        return;
+    }
+
+    if in_match {
+        // Match running — keep the window alive (cheap to hide), just
+        // suppress it visually so the badge doesn't sit over the game.
+        if let Some(win) = launcher_window(handle) {
+            let _ = win.hide();
+        }
+        return;
+    }
+
+    // Enabled and out-of-match: ensure the window exists, then show it.
+    if launcher_window(handle).is_none() {
+        if let Err(err) = create_launcher_window(handle) {
+            warn!(?err, "failed to create launcher window");
+            return;
+        }
+    }
+    if let Some(win) = launcher_window(handle) {
+        let _ = win.show();
+    }
+}
+
 /// Default HUD size (`tauri.conf.json`: 400×300 physical pixels). Kept in
 /// sync with the window declaration — if you bump the conf, bump this.
 const DEFAULT_HUD_W: u32 = 400;
@@ -574,13 +732,20 @@ fn settings_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(SETTINGS_WINDOW)
 }
 
-/// Bring the settings window back from a hidden state — used by both the
-/// tray-icon left click and the "Show" menu entry.
+/// Bring the settings window back from a hidden state — used by the tray
+/// left click, the "Show" menu entry, and the floating launcher's click
+/// handler. Every entry-point flips `user_wants_settings_open = true` so
+/// the auto-hide-on-match-start listener knows the user genuinely opened
+/// the window (and so the next match-start hide is a real suppression,
+/// not a no-op against an already-hidden window).
 fn show_settings_window(app: &AppHandle) {
     if let Some(win) = settings_window(app) {
         let _ = win.show();
         let _ = win.unminimize();
         let _ = win.set_focus();
+    }
+    if let Some(state) = app.try_state::<Arc<AppState>>() {
+        state.user_wants_settings_open.store(true, Ordering::SeqCst);
     }
 }
 
@@ -739,6 +904,8 @@ pub fn run() {
             set_language,
             set_hud_locked,
             set_auto_hide_hud_when_offline,
+            set_launcher_enabled,
+            open_settings_from_launcher,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -747,6 +914,16 @@ pub fn run() {
             // loaded over plain HTTP, not tauri://, so JS there can't call
             // Tauri commands directly — see CLAUDE.md "Architecture caveat").
             let _ = app_state.app_handle.set(handle.clone());
+
+            // The Settings window is `visible: true` in tauri.conf.json, so
+            // the user always sees it on cold boot. Treat that as "user
+            // wants it open" — without this the very first match-start
+            // would NOT auto-hide the window (because the suppression check
+            // gates on `user_wants_settings_open` to distinguish a hidden
+            // window from one the user actively dismissed).
+            app_state
+                .user_wants_settings_open
+                .store(true, Ordering::SeqCst);
 
             // Make sure the HUD window starts hidden, then restore the
             // user's saved visibility/geometry.
@@ -872,6 +1049,63 @@ pub fn run() {
                 });
             }
 
+            // Floating launcher badge:
+            //   1. Create it once the embedded HTTP server has bound a port
+            //      (polled because `start()` is async and we don't want to
+            //      block the setup callback waiting on it).
+            //   2. Wire the `rlstats://match-in-progress` listener so the
+            //      badge auto-hides during a match, the Settings window also
+            //      auto-hides on match start (only if currently visible AND
+            //      flagged as user-opened), and the badge re-shows when the
+            //      match ends. We deliberately do *not* re-show the Settings
+            //      window on match-end — the user reopens it manually via the
+            //      badge or tray (per Q7 of the design notes).
+            {
+                let handle_launcher = handle.clone();
+                let state_launcher = app_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    // Give the HTTP server up to ~5s to bind a port. The
+                    // typical bind is sub-100ms; the long ceiling just
+                    // covers an unlucky port-conflict scan.
+                    for _ in 0..50 {
+                        if state_launcher.http_port.load(Ordering::SeqCst) != 0 {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                    // Always run reconcile — it is the single point of truth
+                    // and decides "create vs. destroy vs. nothing" based on
+                    // settings + match flag.
+                    reconcile_launcher_visibility(&handle_launcher, &state_launcher);
+                });
+            }
+            {
+                let handle_listen = handle.clone();
+                let state_listen = app_state.clone();
+                handle.listen("rlstats://match-in-progress", move |event| {
+                    let in_match = serde_json::from_str::<bool>(event.payload())
+                        .ok()
+                        .unwrap_or(false);
+                    reconcile_launcher_visibility(&handle_listen, &state_listen);
+                    if in_match {
+                        // Match just started — hide the Settings window
+                        // *only if* it's currently visible and the user
+                        // had explicitly opened it. We don't change
+                        // `user_wants_settings_open` so the boolean keeps
+                        // tracking the user's intent (the launcher click
+                        // path will set it true again on reopen).
+                        if let Some(win) = settings_window(&handle_listen) {
+                            let visible = win.is_visible().unwrap_or(false);
+                            let wants =
+                                state_listen.user_wants_settings_open.load(Ordering::SeqCst);
+                            if visible && wants {
+                                let _ = win.hide();
+                            }
+                        }
+                    }
+                });
+            }
+
             // Settings window: closing the "X" hides to the tray instead of
             // quitting, so the HUD and the global hotkey stay live in the
             // background. Use the tray menu (or the in-app Quit button) to
@@ -879,10 +1113,19 @@ pub fn run() {
             if let Some(win) = settings_window(&handle) {
                 let _ = win.set_title("RL Stats Overlay");
                 let win_for_close = win.clone();
+                let state_for_close = app_state.clone();
                 win.on_window_event(move |ev| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
                         api.prevent_close();
                         let _ = win_for_close.hide();
+                        // The user just dismissed the window — clear the
+                        // "wants open" flag so the next match-start hide
+                        // doesn't re-trigger against an already-hidden
+                        // window (and so the launcher remains the only
+                        // path back to settings during a match).
+                        state_for_close
+                            .user_wants_settings_open
+                            .store(false, Ordering::SeqCst);
                     }
                 });
             }

@@ -62,6 +62,8 @@ interface StateSnapshot {
   auto_hide_hud_when_offline: boolean;
   match_stats: MatchStats;
   no_auto_install: boolean;
+  launcher_enabled: boolean;
+  match_in_progress: boolean;
 }
 
 // ----- Theme schema ---------------------------------------------------------
@@ -234,6 +236,10 @@ listen("rlstats://session-changed", () => refresh());
 // without going through the Tauri command — keep the dashboard checkbox in
 // sync with the persisted value.
 listen("rlstats://hud-lock-changed", () => refresh());
+// Match start/stop drives both the floating launcher's auto-hide and the
+// dashboard's `match_in_progress` flag — refresh so any in-panel mirror
+// (e.g. the launcher checkbox label) tracks reality.
+listen("rlstats://match-in-progress", () => refresh());
 // Per-match stats stream — already debounced server-side to ~250ms.
 listen<MatchStats>("rlstats://match-stats", (event) => {
   if (currentState) {
@@ -400,6 +406,32 @@ function renderDashboard() {
       </section>
 
       <section class="panel">
+        <h2>${t("appearance.title")}</h2>
+        <div class="row" style="margin-top: 6px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size: 13px;">
+            <input type="checkbox" id="launcher-enable" ${s.launcher_enabled ? "checked" : ""} />
+            <span>${t("launcher.enable")}</span>
+          </label>
+        </div>
+        <p class="muted" style="margin: 6px 0 0; font-size: 11px;">${t("launcher.enableHint")}</p>
+
+        <div class="row" style="margin-top: 14px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size: 13px;">
+            <input type="checkbox" id="auto-hide-hud" ${s.auto_hide_hud_when_offline ? "checked" : ""} />
+            <span>${t("hud.autoHide")}</span>
+          </label>
+        </div>
+
+        <div class="row" style="margin-top: 14px;">
+          <label class="hud-lock-toggle" style="display:flex; align-items:center; gap:8px; font-size: 13px;">
+            <input type="checkbox" id="hud-lock" ${s.hud_position_locked ? "checked" : ""} />
+            <span>${t("hud.lock")}</span>
+          </label>
+        </div>
+        <p class="muted" style="margin: 6px 0 0; font-size: 11px;">${t("hud.lockHint")}</p>
+      </section>
+
+      <section class="panel">
         <h2>${t("hud.title")}</h2>
         <p class="muted" style="margin-top: 0;">${t("hud.note")}</p>
         <div class="row" style="margin-top: 12px;">
@@ -407,12 +439,6 @@ function renderDashboard() {
             s.hud_visible ? t("hud.hide") : t("hud.show")
           }</button>
           <button id="btn-reload-hud" title="${escapeHtml(t("hud.reloadTitle"))}">${t("hud.reload")}</button>
-        </div>
-        <div class="row" style="margin-top: 10px;">
-          <label style="display:flex; align-items:center; gap:8px; font-size: 12px;">
-            <input type="checkbox" id="auto-hide-hud" ${s.auto_hide_hud_when_offline ? "checked" : ""} />
-            ${t("hud.autoHide")}
-          </label>
         </div>
 
         ${renderMatchStatsBlock(s)}
@@ -435,12 +461,6 @@ function renderDashboard() {
             ${renderGeomStepper("Width",  "geom-w", s.hud_w)}
             ${renderGeomStepper("Height", "geom-h", s.hud_h)}
           </div>
-
-          <label class="hud-lock-toggle" style="display:flex; align-items:center; gap:8px; margin-top: 12px; font-size: 13px;">
-            <input type="checkbox" id="hud-lock" ${s.hud_position_locked ? "checked" : ""} />
-            <span>${t("hud.lock")}</span>
-          </label>
-          <p class="muted" style="margin: 6px 0 0; font-size: 11px;">${t("hud.lockHint")}</p>
         </div>
       </section>
 
@@ -489,6 +509,11 @@ function renderDashboard() {
   document.getElementById("auto-hide-hud")?.addEventListener("change", async (e) => {
     const enabled = (e.target as HTMLInputElement).checked;
     await invoke("set_auto_hide_hud_when_offline", { enabled });
+  });
+  document.getElementById("launcher-enable")?.addEventListener("change", async (e) => {
+    const enabled = (e.target as HTMLInputElement).checked;
+    await invoke("set_launcher_enabled", { enabled });
+    await refresh();
   });
   document.getElementById("btn-copy-url")?.addEventListener("click", onCopyUrl);
   document.getElementById("btn-open-url")?.addEventListener("click", onOpenUrl);

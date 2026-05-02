@@ -80,6 +80,12 @@ pub fn spawn(app: AppHandle, state: Arc<AppState>) {
                 if connected_at.elapsed() >= Duration::from_millis(STABLE_CONNECTION_MS) {
                     delay = RECONNECT_INITIAL_MS;
                 }
+                // RL went away mid-match — clear the match flag and notify
+                // listeners so the floating launcher comes back. Only emit
+                // on transition (avoids spam if RL crashed between matches).
+                if state.match_in_progress.swap(false, Ordering::SeqCst) {
+                    let _ = app.emit("rlstats://match-in-progress", false);
+                }
             }
             sleep(Duration::from_millis(jittered(delay))).await;
             delay = (delay * 3 / 2).min(RECONNECT_MAX_MS);
@@ -169,13 +175,43 @@ async fn run_connection(
     // event already buffered behind it).
     let mut buf: Vec<u8> = Vec::with_capacity(8192);
     let mut chunk = [0u8; 4096];
+
+    // Poll RocketLeague.exe presence on a 1 s tick and race it against the
+    // socket read. Why: when the user clicks "Quit" in RL, the process
+    // terminates without sending FIN on the Stats API socket. Windows
+    // hard-codes the keep-alive probe count to 10 since Vista (the
+    // `with_retries` knob in `socket2::TcpKeepalive` is Linux-only), so
+    // detecting the dead socket via TCP keep-alive alone takes ~8 s. The
+    // process-presence poll catches the same event in <1 s. We keep the
+    // keep-alive code above as belt-and-suspenders for the case where RL
+    // hangs but the process stays resident.
+    //
+    // First tick fires immediately; we skip it to avoid a redundant probe
+    // right after we've just successfully connected (RL is obviously alive).
+    let mut process_poll = tokio::time::interval(Duration::from_secs(1));
+    process_poll.tick().await;
+
     loop {
-        let n = stream.read(&mut chunk).await?;
-        if n == 0 {
-            break; // RL closed the socket
+        tokio::select! {
+            // Bias toward the read so a busy tick (120 Hz UpdateState) doesn't
+            // get starved by the once-a-second probe. `select!` would otherwise
+            // pseudo-randomly pick between ready branches.
+            biased;
+            read = stream.read(&mut chunk) => {
+                let n = read?;
+                if n == 0 {
+                    break; // RL closed the socket
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                drain_complete_envelopes(app, state, &mut buf);
+            }
+            _ = process_poll.tick() => {
+                if !crate::rl_process::rl_process_alive() {
+                    info!("RocketLeague.exe is not running — closing Stats API socket");
+                    break;
+                }
+            }
         }
-        buf.extend_from_slice(&chunk[..n]);
-        drain_complete_envelopes(app, state, &mut buf);
     }
     Ok(())
 }
@@ -261,10 +297,19 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
         "MatchEnded" => on_match_ended(app, state, &data),
         "MatchInitialized" | "MatchCreated" => {
             reset_match_stats(app, state);
+            // Mark the match window — drives the launcher's auto-hide and
+            // the Settings auto-hide-on-match-start. Only emit on transition
+            // so a sequence of MatchInitialized/MatchCreated doesn't flap UI.
+            if !state.match_in_progress.swap(true, Ordering::SeqCst) {
+                let _ = app.emit("rlstats://match-in-progress", true);
+            }
             let _ = app.emit("rlstats://match-started", ());
         }
         "MatchDestroyed" => {
             reset_match_stats(app, state);
+            if state.match_in_progress.swap(false, Ordering::SeqCst) {
+                let _ = app.emit("rlstats://match-in-progress", false);
+            }
         }
         "GoalScored" => {
             let _ = app.emit("rlstats://goal-scored", data);
