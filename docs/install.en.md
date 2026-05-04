@@ -25,16 +25,21 @@ After the wizard, **restart Rocket League** if the game was already running whil
 
 ## Windows SmartScreen
 
-On the first launch of the `.exe`, Windows shows **"Microsoft Defender SmartScreen prevented an unrecognized app from starting"**.
+On the first launch of the `.exe`, Windows shows **"Windows protected your PC"**.
 
 This is expected: the app isn't yet signed with a paid code-signing certificate. Windows shows this warning by default on any binary from a publisher it doesn't know, regardless of the content.
 
-**To get past it**:
+**To get past it (two steps)**:
 
-1. Click **"More info"**.
-2. Click the **"Run anyway"** button that appears.
+1. On the first dialog, click the underlined **"More info"** link (right under the red message). At this stage only the "Don't run" button is visible — that's by design.
 
-The full source is public in [the GitHub repo](https://github.com/kevindjf/rl-stats-overlay) — you can submit the `.exe` to [VirusTotal](https://www.virustotal.com) for an independent analysis. See also [Troubleshooting → SmartScreen](troubleshooting.md).
+    ![First SmartScreen dialog — only "Don't run" visible](images/install-smartscreen-1.png){ loading=lazy }
+
+2. The dialog updates: you now see the file name, "Unknown publisher", and **a new "Run anyway" button** appears at the bottom. Click it.
+
+    ![Second SmartScreen dialog — "Run anyway" button revealed](images/install-smartscreen-2.png){ loading=lazy }
+
+The full source is public in [the GitHub repo](https://github.com/kevindjf/rl-stats-overlay) — you can submit the `.exe` to [VirusTotal](https://www.virustotal.com) for an independent analysis. See also [Troubleshooting](troubleshooting.md).
 
 ## Uninstall
 

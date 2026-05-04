@@ -73,7 +73,7 @@
       "endpoints": [
         "https://github.com/kevindjf/rl-stats-overlay/releases/latest/download/latest.json"
       ],
-      "pubkey": "REPLACE_ME_WITH_OUTPUT_OF_TAURI_SIGNER_GENERATE",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE5MzVGMjY3NTlFN0Y2M0YKUldRLzl1ZFpaL0kxcVlKUkZmTkxLTmhoSForSE5TY1ZSS1B4TmpkTVdKdzdvbzU4OW80K3RDdkcK",
       "windows": {
         "installMode": "passive"
       }

@@ -33,21 +33,21 @@ Double-clique le `.exe` téléchargé. L'installeur NSIS te propose le mode "cur
 
 ## Windows SmartScreen
 
-À la première ouverture du `.exe`, Windows affiche **"Microsoft Defender SmartScreen empêché le démarrage"**.
+À la première ouverture du `.exe`, Windows affiche **"Windows a protégé votre ordinateur"**.
 
 C'est normal et attendu : l'app n'est pas encore signée avec un certificat de code-signing payant. Windows met cet avertissement par défaut sur tout binaire d'un éditeur qu'il ne connaît pas, indépendamment du contenu.
 
-**Pour passer l'écran** :
+**Pour passer l'écran (deux étapes)** :
 
-1. Clique sur **"Plus d'infos"**.
-2. Clique sur le bouton **"Exécuter quand même"** qui apparaît.
+1. Sur le premier dialog, clique sur le lien **"Informations complémentaires"** (souligné, sous le texte rouge). Le bouton "Ne pas exécuter" est seul à ce stade — c'est volontaire.
+
+    ![Premier dialog SmartScreen — uniquement Ne pas exécuter](images/install-smartscreen-1.png){ loading=lazy }
+
+2. Le dialog se met à jour : tu vois maintenant le nom du fichier, "Éditeur inconnu", et **un nouveau bouton "Exécuter quand même"** apparaît en bas. Clique dessus.
+
+    ![Deuxième dialog SmartScreen — bouton Exécuter quand même apparu](images/install-smartscreen-2.png){ loading=lazy }
 
 Le code source est entièrement public dans [le dépôt GitHub](https://github.com/kevindjf/rl-stats-overlay) — tu peux soumettre le `.exe` sur [VirusTotal](https://www.virustotal.com) si tu veux une analyse indépendante. Voir aussi [Dépannage](troubleshooting.md).
-
-<!-- IMAGE CHECKLIST
-  - images/install-smartscreen-1.png    800×500  Initial SmartScreen dialog
-  - images/install-smartscreen-2.png    800×500  After "More info", "Run anyway" highlighted
--->
 
 ## Désinstaller
 

@@ -13,6 +13,8 @@ The window is organized into **6 collapsible sections**:
 5. **OBS Browser Source** — URL to paste into OBS, copy/preview.
 6. **Theme** — active theme + all theme overrides.
 
+![Settings window overview, all sections expanded](../images/settings-overview.png){ loading=lazy }
+
 ## Collapsible sections
 
 Each section is an HTML `<details>` — click the **title** to fold or unfold. A **chevron** to the left of the title rotates 90° when the section is open.
@@ -31,6 +33,8 @@ When a section is collapsed, a **brief summary** stays visible to the right of t
 | Theme | Active theme name (e.g. `Circle`) |
 
 When the section is open the summary disappears (the data is already visible in the body) — no duplication.
+
+![Collapsed sections showing their summaries on the right](../images/settings-collapsed-summaries.png){ loading=lazy }
 
 ## State persistence
 

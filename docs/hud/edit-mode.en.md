@@ -11,11 +11,15 @@
 2. Expand the **In-game HUD** section.
 3. Tick **Edit mode** at the top of the section.
 
+![Edit mode toggle in the settings window](../images/edit-mode-toggle.png){ loading=lazy }
+
 Visually on the HUD:
 
 - A **cyan dashed border** shows up on all 4 edges — you finally see the actual hit zone (otherwise it's fully transparent).
 - A **chunky cyan grip** appears in the bottom-right corner for mouse resizing.
 - The HUD becomes **interactive** again (no longer click-through) — you can drag it with the mouse.
+
+![HUD in edit mode showing the cyan border + bottom-right grip](../images/edit-mode-active.png){ loading=lazy }
 
 ## Drag to move
 
@@ -34,6 +38,8 @@ For precise control without touching the mouse:
 - **250 %** = highly visible HUD (1000×750 px).
 
 The slider resizes the window **proportionally** from the top-left corner, so the content stays visually anchored while you drag.
+
+![Scale slider in settings](../images/edit-mode-scale-slider.png){ loading=lazy }
 
 ## Pixel-perfect placement (X / Y / W / H)
 

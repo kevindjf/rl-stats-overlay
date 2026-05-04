@@ -14,11 +14,15 @@ The in-game HUD is a **small transparent window** placed on top of Rocket League
 2. In the *In-game HUD* section, click **▶ Show HUD** — a transparent window appears in the center of your primary monitor.
 3. Turn on **[Edit mode](edit-mode.md)** to move and resize it.
 
+![HUD preview](../images/hud-overview.png){ loading=lazy }
+
 ## Borderless required
 
 > ⚠️ Rocket League must run in **borderless fullscreen** for the transparent window to show on top of it.
 
 In Rocket League: **Settings → Video → Window Mode → Borderless**.
+
+![Borderless setting in Rocket League](../images/hud-rl-borderless.png){ loading=lazy }
 
 Exclusive "Fullscreen" mode is **not supported** by Windows for overlays — that's a system limitation, not the app's. See also [Troubleshooting](../troubleshooting.md).
 
@@ -31,6 +35,8 @@ Right-clicking the HUD opens a quick menu:
 - **Quit** — fully closes the app.
 
 ## Going further
+
+
 
 - [Edit mode](edit-mode.md) — move, resize, percent-perfect scaling.
 - [Floating launcher](floating-launcher.md) — quick access to settings from the edge of the screen.

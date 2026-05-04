@@ -11,16 +11,15 @@ Le **Mode édition** est un toggle unique qui bascule le HUD entre deux états :
 2. Déplie la section **HUD en jeu**.
 3. Coche **Mode édition** en haut de la section.
 
+![La case Mode édition cochée dans la fenêtre Settings](../images/edit-mode-toggle.png){ loading=lazy }
+
 Visuellement sur le HUD :
 
 - Une **bordure cyan pointillée** apparaît sur les 4 bords de la fenêtre — tu vois enfin la zone réelle (sinon elle est totalement transparente).
 - Une **grosse poignée cyan** apparaît dans le coin bas-droit pour le redimensionnement à la souris.
 - Le HUD redevient **interactif** (plus clic-traversant) — tu peux le drag avec la souris.
 
-<!-- IMAGE CHECKLIST
-  - images/edit-mode-toggle.png         800×400  Settings panel with the master toggle
-  - images/edit-mode-active.png         640×480  HUD with cyan dashed border + grip
--->
+![HUD avec la bordure cyan + poignée bas-droit en mode édition](../images/edit-mode-active.png){ loading=lazy }
 
 ## Déplacer à la souris
 
@@ -42,7 +41,7 @@ Pour un contrôle précis sans toucher la souris :
 
 Le slider redimensionne **proportionnellement** la fenêtre depuis le coin haut-gauche, donc le contenu reste visuellement stable au même endroit pendant que tu fais glisser.
 
-<!-- IMAGE: images/edit-mode-scale-slider.png — Scale slider at low % vs high % (800×400) -->
+![Slider d'échelle dans les réglages](../images/edit-mode-scale-slider.png){ loading=lazy }
 
 ## Placement précis (X / Y / W / H)
 

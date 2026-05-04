@@ -98,6 +98,7 @@ plugins:
             Contribuer: Contributing
             Développement: Development
             Architecture: Architecture
+            Publier une release: Publishing a release
   - glightbox:
       touchNavigation: true
       loop: false
@@ -159,3 +160,4 @@ nav:
   - Contribuer:
       - Développement: contributing/development.md
       - Architecture: contributing/architecture.md
+      - Publier une release: contributing/release.md

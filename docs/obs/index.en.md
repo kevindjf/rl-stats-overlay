@@ -11,6 +11,8 @@
 7. Optionally tick **Refresh browser when scene becomes active**
 8. ✓
 
+![OBS Browser Source configuration](../images/obs-browser-source-config.png){ loading=lazy }
+
 ## Positioning
 
 The boost overlay is designed to align **around Rocket League's boost gauge**, which sits in the bottom-right corner of the screen.

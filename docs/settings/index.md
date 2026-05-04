@@ -13,7 +13,7 @@ La fenêtre est organisée en **6 sections repliables** :
 5. **OBS Browser Source** — URL à coller dans OBS, copier/aperçu.
 6. **Theme** — thème actif + tous les overrides du thème.
 
-<!-- IMAGE: images/settings-overview.png — full settings window, all sections expanded (900×1200) -->
+![Vue d'ensemble de la fenêtre Settings, toutes sections dépliées](../images/settings-overview.png){ loading=lazy }
 
 ## Sections repliables
 
@@ -34,7 +34,7 @@ Quand une section est repliée, un **mini-résumé** reste visible à droite du 
 
 Quand la section est ouverte, le résumé s'efface (l'info est déjà visible dans le contenu) — pas de doublon.
 
-<!-- IMAGE: images/settings-collapsed-summaries.png — sections collapsed showing summaries on the right (900×900) -->
+![Sections repliées avec leurs mini-résumés à droite](../images/settings-collapsed-summaries.png){ loading=lazy }
 
 ## Persistance de l'état
 
