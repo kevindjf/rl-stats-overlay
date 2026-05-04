@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/install/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/install/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/install/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/troubleshooting/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/troubleshooting/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/troubleshooting/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/contributing/architecture/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/contributing/architecture/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/contributing/architecture/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/contributing/development/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/contributing/development/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/contributing/development/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/contributing/release/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/contributing/release/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/contributing/release/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/hud/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/hud/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/hud/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/hud/auto-hide/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/hud/auto-hide/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/hud/auto-hide/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/hud/edit-mode/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/hud/edit-mode/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/hud/edit-mode/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/hud/floating-launcher/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/hud/floating-launcher/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/hud/floating-launcher/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/obs/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/obs/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/obs/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/reference/stats-api/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/reference/stats-api/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/reference/stats-api/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/settings/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/settings/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/settings/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/themes/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/themes/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/themes/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/themes/designer-guide/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/themes/designer-guide/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/themes/designer-guide/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/install/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/install/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/install/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/troubleshooting/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/troubleshooting/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/troubleshooting/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/contributing/architecture/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/contributing/architecture/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/contributing/architecture/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/contributing/development/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/contributing/development/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/contributing/development/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/contributing/release/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/contributing/release/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/contributing/release/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/hud/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/hud/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/hud/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/hud/auto-hide/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/hud/auto-hide/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/hud/auto-hide/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/hud/edit-mode/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/hud/edit-mode/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/hud/edit-mode/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/hud/floating-launcher/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/hud/floating-launcher/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/hud/floating-launcher/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/obs/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/obs/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/obs/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/reference/stats-api/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/reference/stats-api/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/reference/stats-api/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/settings/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/settings/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/settings/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/themes/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/themes/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/themes/"/>
+    </url>
+    <url>
+        <loc>https://kevindjf.github.io/rl-stats-overlay/en/themes/designer-guide/</loc>
+        <lastmod>2026-05-04</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://kevindjf.github.io/rl-stats-overlay/en/themes/designer-guide/"/>
+        <xhtml:link rel="alternate" hreflang="fr" href="https://kevindjf.github.io/rl-stats-overlay/themes/designer-guide/"/>
+    </url>
+</urlset>
