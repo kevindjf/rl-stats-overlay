@@ -15,7 +15,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "unstable"] }
+# Direct pull only for `ResizeDirection`, which `tauri` v2 keeps in
+# `tauri_runtime` — needed to feed `Window::start_resize_dragging` from the
+# HUD-side resize grip handler. Pinned to v2 so it tracks Tauri's own
+# minor-version bumps automatically.
+tauri-runtime = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"

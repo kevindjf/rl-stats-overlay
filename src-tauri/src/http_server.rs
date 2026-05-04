@@ -52,6 +52,7 @@ pub async fn start(state: Arc<AppState>) -> Result<()> {
         // source) the handlers return a soft 404 / no-op so the page keeps
         // rendering normally.
         .route("/hud/start-drag", post(hud_start_drag))
+        .route("/hud/start-resize", post(hud_start_resize))
         .route("/hud/toggle-lock", post(hud_toggle_lock))
         .route("/session/reset", post(session_reset))
         .route("/app/quit", post(app_quit))
@@ -224,6 +225,34 @@ async fn hud_start_drag(State(state): State<Arc<AppState>>) -> Response {
     StatusCode::OK.into_response()
 }
 
+/// HUD resize handler. Mirrors `hud_start_drag` but kicks off a south-east
+/// directional resize so the user can grow / shrink the HUD by dragging the
+/// bottom-right grip. Same lock short-circuit + 404 semantics so OBS browser
+/// sources never accidentally trigger anything. The follow-up `WindowEvent::
+/// Resized` listener in `lib.rs::run` persists the new size automatically,
+/// and the embedded JS recomputes `--hud-scale` so the panel grows along.
+async fn hud_start_resize(State(state): State<Arc<AppState>>) -> Response {
+    if state.settings.lock().hud_position_locked {
+        return StatusCode::OK.into_response();
+    }
+    let app = match state.app_handle.get() {
+        Some(a) => a,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, "app not ready").into_response(),
+    };
+    // `start_resize_dragging` lives on `Window`, not `WebviewWindow` — Tauri
+    // 2 only proxies the move-drag variant. Reach for the underlying Window
+    // via the manager so we can drive the OS resize loop.
+    let hud = match app.get_window("hud") {
+        Some(w) => w,
+        None => return (StatusCode::NOT_FOUND, "no hud window").into_response(),
+    };
+    if let Err(err) = hud.start_resize_dragging(tauri_runtime::ResizeDirection::SouthEast) {
+        warn!(?err, "start_resize_dragging failed");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response();
+    }
+    StatusCode::OK.into_response()
+}
+
 /// Right-click "Toggle position lock" handler. Flips the persisted bool and
 /// updates the HUD's `ignore_cursor_events` so the lock has a visible effect:
 /// locked = click-through (cursor passes to the game), unlocked = interactive.
@@ -231,12 +260,21 @@ async fn hud_toggle_lock(State(state): State<Arc<AppState>>) -> Response {
     let new_locked = {
         let mut s = state.settings.lock();
         s.hud_position_locked = !s.hud_position_locked;
+        // Edit mode is the inverse of lock — kept in lock-step so the
+        // dashboard checkbox stays in sync after a right-click toggle.
+        s.hud_edit_mode = !s.hud_position_locked;
         s.hud_position_locked
     };
     state.request_save_settings();
     if let Some(app) = state.app_handle.get() {
         if let Some(hud) = app.get_webview_window("hud") {
             let _ = hud.set_ignore_cursor_events(new_locked);
+            // Push the visual chrome flip (dashed border + fat grip) onto
+            // the live HUD without waiting for the next page reload.
+            let val = if new_locked { "false" } else { "true" };
+            let _ = hud.eval(&format!(
+                r#"try {{ document.documentElement.dataset.editMode = '{val}'; }} catch (_) {{}}"#
+            ));
         }
         let _ = app.emit("rlstats://hud-lock-changed", new_locked);
     }

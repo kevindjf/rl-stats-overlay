@@ -3,6 +3,36 @@
    Designed to look native-ish over any theme background — small,
    rounded, dark glass with a 1px stroke and a soft shadow. */
 
+/* Auto-fit-to-window scale. The shared menu.js sets --hud-scale on every
+   window resize so the transform stays in sync with the live geometry; this
+   CSS rule is a belt-and-suspenders fallback that ALSO applies the transform
+   even if the user is running an older cached menu.js (very common after a
+   plugin update — WebView2 holds onto the previous /overlays/themes/_shared/
+   bundle until something cache-busts the path). The `var(...)` default is 1
+   so themes loaded outside of Tauri (OBS Browser Source at exactly 400×300)
+   still render at intrinsic size.
+
+   Why top-left anchoring (overriding the themes' `inset:0; margin:auto`):
+     The Tauri HUD window grows from its top-left when `set_size` is called
+     — bottom-right is the only edge that moves. A center-anchored panel
+     would *visually slide* toward the bottom-right at higher scales because
+     `inset:0; margin:auto` recomputes the panel's centered offset against
+     a larger viewport. Anchoring the panel at (0, 0) and scaling from the
+     same origin keeps it pixel-stable on screen across every scale value.
+     menu.css is injected after each theme's stylesheet, so the equal-
+     specificity overrides win on cascade order. */
+:root { --hud-scale: 1; }
+.panel {
+  inset: auto;
+  top: 0;
+  left: 0;
+  right: auto;
+  bottom: auto;
+  margin: 0;
+  transform: scale(var(--hud-scale, 1));
+  transform-origin: top left;
+}
+
 #hud-context-menu {
   position: fixed;
   z-index: 99999;
@@ -41,4 +71,77 @@
 
 #hud-context-menu .item.danger {
   color: #ff7a7a;
+}
+
+/* Drag-to-resize grip in the bottom-right corner of the HUD window. Almost
+   invisible by default so OBS Browser Source captures stay clean; fades in
+   on hover anywhere over the HUD body so Tauri users can grab it without
+   hunting. The visual is the canonical 3-dot Windows-style grip rendered
+   as a CSS gradient — no glyph fonts needed. Edit mode (toggled from the
+   settings UI via `:root[data-edit-mode="true"]`) blows the handle up and
+   pegs it to full opacity so the user can locate the corner without
+   pixel-hunting over a transparent over-the-game window. */
+#hud-resize-handle {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  z-index: 99998;
+  opacity: 0;
+  transition: opacity 0.15s ease, width 0.15s ease, height 0.15s ease,
+    background-color 0.15s ease;
+  background:
+    linear-gradient(135deg,
+      transparent 0%,
+      transparent 55%,
+      rgba(255, 255, 255, 0.55) 55%,
+      rgba(255, 255, 255, 0.55) 62%,
+      transparent 62%,
+      transparent 70%,
+      rgba(255, 255, 255, 0.55) 70%,
+      rgba(255, 255, 255, 0.55) 77%,
+      transparent 77%,
+      transparent 85%,
+      rgba(255, 255, 255, 0.55) 85%,
+      rgba(255, 255, 255, 0.55) 92%,
+      transparent 92%);
+  /* Drop a tiny dark wash under the diagonal stripes so the grip stays
+     legible over light gameplay backgrounds. */
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
+}
+body:hover #hud-resize-handle,
+#hud-resize-handle:hover {
+  opacity: 1;
+}
+
+/* ---- Edit mode ----------------------------------------------------------
+   Toggled from the settings UI, set via `set_hud_edit_mode` → eval on the
+   HUD webview. While ON we show:
+     1. A dashed cyan outline along every edge of the window so the user
+        can see the actual hit zone (Tauri windows have no decorations).
+     2. A larger always-visible resize grip in the bottom-right corner —
+        easier to grab without pixel-hunting.
+     3. A faint inner shaded zone so the entire draggable area is obvious.
+   Edit mode does NOT affect functionality (drag-to-move and resize work
+   regardless); it just makes them discoverable. */
+:root[data-edit-mode="true"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  outline: 2px dashed #5dd1ff;
+  outline-offset: -2px;
+  background: rgba(93, 209, 255, 0.06);
+  z-index: 99997;
+}
+:root[data-edit-mode="true"] #hud-resize-handle {
+  width: 32px;
+  height: 32px;
+  opacity: 1 !important;
+  background-color: rgba(93, 209, 255, 0.18);
+  border-top: 2px solid #5dd1ff;
+  border-left: 2px solid #5dd1ff;
+  border-top-left-radius: 6px;
 }

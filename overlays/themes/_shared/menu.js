@@ -1,4 +1,5 @@
-// Shared HUD interaction snippet — drag-to-move + right-click context menu.
+// Shared HUD interaction snippet — drag-to-move, drag-to-resize, auto-scale
+// and right-click context menu.
 //
 // Loaded by every bundled theme (circle, default, minimal, redesigned) via a
 // plain <script> tag pointing at /overlays/themes/_shared/menu.js. Custom /
@@ -16,6 +17,44 @@
 
 (function () {
   "use strict";
+
+  // ---- Auto-fit scale ------------------------------------------------------
+  //
+  // Every theme draws its `.panel` at a fixed pixel size (200×124, 260×150,
+  // 400×264, …). Without intervention the panel stays centered at its
+  // intrinsic size when the host window grows or shrinks — which is why
+  // resizing the Tauri HUD or the OBS Browser Source previously had no
+  // visible effect on the contents.
+  //
+  // We solve this by exposing a `--hud-scale` CSS var on :root, computed from
+  // the window's current dimensions relative to the factory-default 400×300
+  // base, and applying `transform: scale(var(--hud-scale))` directly on the
+  // `.panel` element. The transform-origin is the panel's center so the
+  // visual centering of `position:absolute; inset:0; margin:auto` is
+  // preserved across scale values. We use `min(sx, sy)` so the panel always
+  // fits inside the window without clipping, regardless of the window's
+  // aspect ratio. Works identically in OBS — at a 400×300 source the scale
+  // is 1.0 (no visual change vs. the previous behaviour), at 800×600 it
+  // becomes 2.0 (content fills the source).
+  const SCALE_BASE_W = 400;
+  const SCALE_BASE_H = 300;
+  function applyHudScale() {
+    const sx = window.innerWidth / SCALE_BASE_W;
+    const sy = window.innerHeight / SCALE_BASE_H;
+    // 0.25 floor matches the Rust-side hud size minimum (80×60 ≈ 0.20×) and
+    // keeps the panel readable; ceiling left open — large windows are fine.
+    const scale = Math.max(0.25, Math.min(sx, sy));
+    document.documentElement.style.setProperty("--hud-scale", String(scale));
+    const panel = document.querySelector(".panel");
+    if (panel) {
+      panel.style.transformOrigin = "top left";
+      panel.style.transform = `scale(${scale})`;
+    }
+  }
+  // Apply once now (the panel is already in the DOM by the time this script
+  // tag runs — it sits at the bottom of <body>) and on every window resize.
+  applyHudScale();
+  window.addEventListener("resize", applyHudScale, { passive: true });
 
   const lang =
     (document.documentElement.lang || navigator.language || "fr")
@@ -57,9 +96,36 @@
   function isInteractive(el) {
     if (!(el instanceof Element)) return false;
     return !!el.closest(
-      'input, button, select, textarea, a, [contenteditable=""], [contenteditable="true"], [role="button"]',
+      'input, button, select, textarea, a, [contenteditable=""], [contenteditable="true"], [role="button"], #hud-resize-handle',
     );
   }
+
+  // ---- Drag-to-resize handle ----------------------------------------------
+  //
+  // A small grip in the bottom-right corner that lets the user resize the
+  // HUD with the mouse. Stays mostly invisible to keep the OBS Browser
+  // Source preview clean, fades in on hover. Click → POST to
+  // `/hud/start-resize`, the Rust side hands the mouse loop to the OS via
+  // `start_resize_dragging(SouthEast)` and the resize tracks until release.
+  // Skipped when the HUD position is locked (the server short-circuits, but
+  // we also hide the visual cue locally so the user sees the lock taking
+  // effect — DOM attribute is wired by the lock-changed event below).
+  const resizeHandle = document.createElement("div");
+  resizeHandle.id = "hud-resize-handle";
+  resizeHandle.setAttribute("aria-hidden", "true");
+  resizeHandle.title = lang === "fr" ? "Redimensionner" : "Resize";
+  resizeHandle.addEventListener(
+    "mousedown",
+    (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      hideMenu();
+      post("/hud/start-resize");
+    },
+    { passive: false },
+  );
+  document.body.appendChild(resizeHandle);
 
   // ---- Drag-to-move --------------------------------------------------------
 
@@ -70,6 +136,10 @@
     (ev) => {
       if (ev.button !== 0) return; // left-click only — right-click is the menu
       if (isInteractive(ev.target)) return;
+      // Resize handle handles its own mousedown (stopPropagation above), but
+      // belt-and-braces in case a child element bubbles an event up here.
+      if (ev.target instanceof Element && ev.target.closest("#hud-resize-handle"))
+        return;
       // Hide the menu if it was open — clicking elsewhere should dismiss it.
       hideMenu();
       // Fire-and-forget: the OS takes over the mouse loop once start_dragging

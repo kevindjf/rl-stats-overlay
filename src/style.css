@@ -72,6 +72,88 @@ h2 { font-size: 14px; margin: 0 0 12px; font-weight: 700; letter-spacing: 0.5px;
   box-shadow: var(--shadow);
 }
 
+/* Collapsible panel — every section is a `<details>` whose `<summary>` line
+   acts as the expand/collapse trigger. We hide the native disclosure
+   triangle in favor of our own chevron rotated via :open. The header still
+   accepts inline action buttons (Edit/Save/Reset on Session, theme tools on
+   Theme); those live in a `<div data-no-toggle>` whose JS-side click handler
+   stops propagation so the panel doesn't collapse on a button click. */
+details.panel { padding: 0; }
+details.panel > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-radius: 14px;
+  transition: background 0.15s ease;
+}
+details.panel[open] > summary {
+  border-radius: 14px 14px 0 0;
+  border-bottom: 1px solid var(--border);
+}
+details.panel > summary:hover { background: rgba(255, 255, 255, 0.02); }
+details.panel > summary::-webkit-details-marker { display: none; }
+details.panel > summary > h2 {
+  margin: 0;
+  flex: 1;
+}
+details.panel .panel-chevron {
+  display: inline-block;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text);
+  transition: transform 0.15s ease;
+  width: 22px;
+  text-align: center;
+}
+details.panel[open] .panel-chevron { transform: rotate(90deg); }
+details.panel .panel-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+details.panel > .panel-body {
+  padding: 16px 20px 18px;
+}
+
+/* Brief at-a-glance summary shown next to the title when the section is
+   collapsed. Hidden when the section is open — once expanded, the data is
+   visible in the body so the duplicate would be noise. Layout: pushes to
+   the right of the title, kept tabular so numeric values line up across
+   sections. */
+.panel-summary-info {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+.panel-summary-info strong { color: rgba(255, 255, 255, 0.78); font-weight: 600; }
+.panel-summary-info .info-win  { color: var(--accent); }
+.panel-summary-info .info-loss { color: var(--danger); }
+.panel-summary-info .info-warn { color: var(--warn); }
+.panel-summary-info .info-ok   { color: var(--accent); }
+.panel-summary-info .info-code {
+  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  font-size: 11px;
+  color: var(--info);
+  background: rgba(108, 176, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+details.panel[open] > summary .panel-summary-info {
+  display: none;
+}
+details.panel:not([open]) > summary .panel-actions {
+  display: none;
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -504,6 +586,34 @@ footer a { color: var(--info); text-decoration: none; }
 .geom-input:focus {
   outline: none;
   border-color: var(--info);
+}
+
+/* ----- HUD scale slider --------------------------------------------------- */
+
+.hud-scale {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #0a0d13;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.hud-scale-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hud-scale-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+}
+#hud-scale {
+  width: 100%;
+  accent-color: var(--info);
 }
 
 /* ----- Theme editor ------------------------------------------------------- */

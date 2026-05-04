@@ -59,6 +59,7 @@ interface StateSnapshot {
   language: LangPref;
   has_local_platform_candidates: boolean;
   hud_position_locked: boolean;
+  hud_edit_mode: boolean;
   auto_hide_hud_when_offline: boolean;
   match_stats: MatchStats;
   no_auto_install: boolean;
@@ -189,6 +190,80 @@ let currentState: StateSnapshot | null = null;
 // shown). Module-scoped so the flag survives across renderDashboard()
 // calls. Reset to false after Save / Cancel.
 let isEditingSession = false;
+
+// ----- Collapsible panels ---------------------------------------------------
+
+/// Lookup whether a collapsible panel was last left open. We use the native
+/// `<details>` element for the toggle, but its `open` state isn't persisted
+/// across reloads on its own — we mirror it to localStorage keyed by the
+/// panel's stable `data-panel-key` so the dashboard remembers each section's
+/// preferred state across app restarts.
+function panelOpen(key: string, defaultOpen: boolean): boolean {
+  try {
+    const v = localStorage.getItem(`panel:${key}`);
+    if (v === "open") return true;
+    if (v === "closed") return false;
+  } catch (_) { /* private mode / quota — fall through to default */ }
+  return defaultOpen;
+}
+
+/// Wrap a section's body in a `<details>` whose summary acts as the
+/// expand/collapse trigger. `headerActions` (optional) renders inline next to
+/// the title — buttons in the summary stop click propagation in
+/// `bindPanelCollapse` so clicking them doesn't toggle the section.
+function renderPanel(
+  key: string,
+  title: string,
+  body: string,
+  opts: { defaultOpen?: boolean; headerActions?: string; summaryInfo?: string } = {},
+): string {
+  const open = panelOpen(key, opts.defaultOpen ?? true);
+  const actions = opts.headerActions
+    ? `<div class="panel-actions" data-no-toggle>${opts.headerActions}</div>`
+    : "";
+  const info = opts.summaryInfo
+    ? `<span class="panel-summary-info">${opts.summaryInfo}</span>`
+    : "";
+  return /* html */ `
+    <details class="panel" data-panel-key="${escapeHtml(key)}" ${open ? "open" : ""}>
+      <summary>
+        <span class="panel-chevron" aria-hidden="true">▸</span>
+        <h2>${title}</h2>
+        ${info}
+        ${actions}
+      </summary>
+      <div class="panel-body">
+        ${body}
+      </div>
+    </details>
+  `;
+}
+
+/// Persist the open/closed state of every collapsible panel to localStorage,
+/// and prevent buttons / inputs inside `<summary>` from toggling the panel
+/// when clicked (they live there because they belong to the section header).
+function bindPanelCollapse() {
+  document
+    .querySelectorAll<HTMLDetailsElement>("details.panel[data-panel-key]")
+    .forEach((el) => {
+      const key = el.dataset.panelKey!;
+      el.addEventListener("toggle", () => {
+        try {
+          localStorage.setItem(`panel:${key}`, el.open ? "open" : "closed");
+        } catch (_) { /* ignore quota */ }
+      });
+    });
+  // Stop the propagation that would otherwise reach <summary> and toggle
+  // the panel. We tag the action wrapper with `data-no-toggle` and catch
+  // every interactive event there.
+  document
+    .querySelectorAll<HTMLElement>("details.panel summary [data-no-toggle]")
+    .forEach((el) => {
+      ["click", "mousedown", "keydown"].forEach((evt) =>
+        el.addEventListener(evt, (e) => e.stopPropagation()),
+      );
+    });
+}
 
 async function refresh(): Promise<StateSnapshot> {
   currentState = await invoke<StateSnapshot>("get_state");
@@ -337,20 +412,7 @@ function renderDashboard() {
         }</span>
       </header>
 
-      <section class="panel">
-        <div class="panel-header">
-          <h2>${t("session.title")}</h2>
-          <div class="row" style="gap: 6px;">
-            ${isEditingSession
-              ? /* html */ `
-                <button class="ghost" id="btn-session-cancel">${t("session.editCancel")}</button>
-                <button class="primary" id="btn-session-save">${t("session.editSave")}</button>`
-              : /* html */ `
-                <button class="ghost" id="btn-session-edit">${t("session.editStart")}</button>
-                <button class="ghost" id="btn-reset">${t("session.reset")}</button>`
-            }
-          </div>
-        </div>
+      ${renderPanel("session", t("session.title"), /* html */ `
         <div class="session">
           <div class="stat win">
             <input class="num session-edit" type="number" data-field="wins" value="${s.session.wins}" min="0" ${isEditingSession ? "" : "disabled"} />
@@ -391,10 +453,18 @@ function renderDashboard() {
             ${t("session.filter.note")}
           </p>
         </div>
-      </section>
+      `, {
+        summaryInfo: /* html */ `<strong class="info-win">${s.session.wins}W</strong> · <strong class="info-loss">${s.session.losses}L</strong> · <strong>${s.session.streak >= 0 ? "+" : ""}${s.session.streak}</strong>`,
+        headerActions: isEditingSession
+            ? /* html */ `
+              <button class="ghost" id="btn-session-cancel">${t("session.editCancel")}</button>
+              <button class="primary" id="btn-session-save">${t("session.editSave")}</button>`
+            : /* html */ `
+              <button class="ghost" id="btn-session-edit">${t("session.editStart")}</button>
+              <button class="ghost" id="btn-reset">${t("session.reset")}</button>`,
+        })}
 
-      <section class="panel">
-        <h2>${t("player.title")}</h2>
+      ${renderPanel("player", t("player.title"), /* html */ `
         ${s.has_local_platform_candidates
           ? /* html */ `
             <div class="row" style="align-items: center;">
@@ -424,10 +494,13 @@ function renderDashboard() {
             ? t("player.idCaptured", { id: escapeHtml(s.primary_id) })
             : t("player.idPending")}
         </p>
-      </section>
+      `, {
+        summaryInfo: s.player_name
+          ? `<strong>${escapeHtml(s.player_name)}</strong>`
+          : `<em class="muted">${t("player.detectedWaiting")}</em>`,
+      })}
 
-      <section class="panel">
-        <h2>${t("appearance.title")}</h2>
+      ${renderPanel("appearance", t("appearance.title"), /* html */ `
         <div class="row" style="margin-top: 6px;">
           <label style="display:flex; align-items:center; gap:8px; font-size: 13px;">
             <input type="checkbox" id="launcher-enable" ${s.launcher_enabled ? "checked" : ""} />
@@ -442,18 +515,9 @@ function renderDashboard() {
             <span>${t("hud.autoHide")}</span>
           </label>
         </div>
+      `)}
 
-        <div class="row" style="margin-top: 14px;">
-          <label class="hud-lock-toggle" style="display:flex; align-items:center; gap:8px; font-size: 13px;">
-            <input type="checkbox" id="hud-lock" ${s.hud_position_locked ? "checked" : ""} />
-            <span>${t("hud.lock")}</span>
-          </label>
-        </div>
-        <p class="muted" style="margin: 6px 0 0; font-size: 11px;">${t("hud.lockHint")}</p>
-      </section>
-
-      <section class="panel">
-        <h2>${t("hud.title")}</h2>
+      ${renderPanel("hud", t("hud.title"), /* html */ `
         <p class="muted" style="margin-top: 0;">${t("hud.note")}</p>
         <div class="row" style="margin-top: 12px;">
           <button class="primary" id="btn-toggle-hud">${
@@ -465,7 +529,15 @@ function renderDashboard() {
         ${renderMatchStatsBlock(s)}
 
         <div class="hud-geom">
-          <div class="row" style="gap: 16px; align-items: flex-end;">
+          <label class="hud-edit-toggle" style="display:flex; align-items:center; gap:8px; font-size: 13px;">
+            <input type="checkbox" id="hud-edit-mode" ${s.hud_edit_mode ? "checked" : ""} />
+            <strong>${t("hud.editMode")}</strong>
+          </label>
+          <p class="muted" style="margin: 4px 0 12px; font-size: 11px;">${t("hud.editModeHint")}</p>
+
+          ${renderHudScale(s)}
+
+          <div class="row" style="gap: 16px; align-items: flex-end; margin-top: 14px;">
             <label class="step-picker">${t("hud.step")}
               <select id="geom-step">
                 <option value="1">1 px</option>
@@ -483,17 +555,28 @@ function renderDashboard() {
             ${renderGeomStepper("Height", "geom-h", s.hud_h)}
           </div>
         </div>
-      </section>
+      `, {
+        summaryInfo: (() => {
+          const pct = Math.round((s.hud_w / 400) * 100);
+          const visible = s.hud_visible
+            ? `<span class="info-ok">●</span> ${t("hud.show").replace(/^▶\s*/, "")}`
+            : `<span class="muted">○ ${t("hud.hide").replace(/^🟢\s*/, "").replace(/\s*—\s*.*/, "")}</span>`;
+          return `${pct}% · ${visible}`;
+        })(),
+      })}
 
-      <section class="panel">
-        <h2>${t("obs.title")}</h2>
+      ${renderPanel("obs", t("obs.title"), /* html */ `
         <p class="muted" style="margin-top: 0;">${t("obs.note")}</p>
         <div class="url-pill" id="url-pill">${escapeHtml(obsUrl)}</div>
         <div class="row" style="margin-top: 12px;">
           <button class="primary" id="btn-copy-url" ${s.http_port === 0 ? "disabled" : ""}>${t("obs.copy")}</button>
           <button id="btn-open-url" ${s.http_port === 0 ? "disabled" : ""}>${t("obs.preview")}</button>
         </div>
-      </section>
+      `, {
+        summaryInfo: s.http_port === 0
+          ? `<em class="muted">…</em>`
+          : `<code class="info-code">localhost:${s.http_port}</code>`,
+      })}
 
       ${renderThemeSection(s)}
 
@@ -568,9 +651,9 @@ function renderDashboard() {
   bindTeamSizeFilter();
   document.getElementById("btn-toggle-hud")?.addEventListener("click", onToggleHud);
   document.getElementById("btn-reload-hud")?.addEventListener("click", onReloadHud);
-  document.getElementById("hud-lock")?.addEventListener("change", async (e) => {
-    const locked = (e.target as HTMLInputElement).checked;
-    await invoke("set_hud_locked", { locked });
+  document.getElementById("hud-edit-mode")?.addEventListener("change", async (e) => {
+    const enabled = (e.target as HTMLInputElement).checked;
+    await invoke("set_hud_edit_mode", { enabled });
     await refresh();
   });
   document.getElementById("auto-hide-hud")?.addEventListener("change", async (e) => {
@@ -596,7 +679,9 @@ function renderDashboard() {
   document.getElementById("btn-quit-app")?.addEventListener("click", onQuitApp);
 
   bindGeomListeners();
+  bindHudScale();
   bindThemeListeners();
+  bindPanelCollapse();
 }
 
 // ----- Per-match stats block -----------------------------------------------
@@ -629,6 +714,80 @@ function renderMatchStatsBlock(s: StateSnapshot): string {
       ${hint}
     </div>
   `;
+}
+
+// ----- HUD scale slider -----------------------------------------------------
+
+/// Single "Scale %" slider on top of the HUD geometry steppers. 100 % matches
+/// the factory-default 400×300 base (kept in sync with `DEFAULT_HUD_W/H` on
+/// the Rust side). Reads the current percent from `hud_w / 400` so the slider
+/// reflects whatever the user has set via the W/H steppers, the resize-handle
+/// drag, or a previous scale call. Backend clamps to 25–400 %; we cap the UI
+/// at 250 % to keep the slider's resolution useful.
+function renderHudScale(s: StateSnapshot): string {
+  const pct = Math.max(25, Math.min(400, Math.round((s.hud_w / 400) * 100)));
+  return /* html */ `
+    <div class="hud-scale">
+      <div class="hud-scale-row">
+        <label for="hud-scale" class="geom-label">${t("hud.scaleLabel")}</label>
+        <output id="hud-scale-value" class="hud-scale-value" for="hud-scale">${pct}%</output>
+      </div>
+      <input
+        type="range"
+        id="hud-scale"
+        min="50"
+        max="250"
+        step="5"
+        value="${pct}"
+      />
+      <p class="muted" style="margin: 4px 0 0; font-size: 11px;">${t("hud.scaleHint")}</p>
+    </div>
+  `;
+}
+
+function bindHudScale() {
+  const input = document.getElementById("hud-scale") as HTMLInputElement | null;
+  const output = document.getElementById("hud-scale-value") as HTMLOutputElement | null;
+  if (!input) return;
+  // Coalesce rapid drags: throttle the actual `set_hud_scale` calls to one
+  // every 60 ms while the user drags. Without this, the slider fires `input`
+  // at >60 Hz and we'd hammer the Rust side / disk writes for nothing — the
+  // window itself only repaints at the refresh rate.
+  let pending: number | null = null;
+  let lastSent = 0;
+  const flush = async (pct: number) => {
+    lastSent = performance.now();
+    pending = null;
+    try {
+      await invoke("set_hud_scale", { percent: pct });
+    } catch (err) {
+      console.error("set_hud_scale failed", err);
+    }
+  };
+  input.addEventListener("input", () => {
+    const pct = Number(input.value || "100");
+    if (output) output.value = `${pct}%`;
+    const now = performance.now();
+    if (now - lastSent >= 60) {
+      flush(pct);
+    } else if (pending == null) {
+      pending = window.setTimeout(() => flush(pct), 60);
+    }
+  });
+  // Final commit on `change` (mouseup) so the last value always lands even
+  // if it fell into the throttle window. Refreshes the dashboard so the
+  // W/H steppers below pick up the new pixel dimensions on the next render
+  // (the focus guard inside `refresh()` keeps the slider visually stable).
+  input.addEventListener("change", async () => {
+    const pct = Number(input.value || "100");
+    if (pending != null) {
+      window.clearTimeout(pending);
+      pending = null;
+    }
+    await flush(pct);
+    input.blur();
+    await refresh();
+  });
 }
 
 // ----- HUD geometry steppers -----------------------------------------------
@@ -703,26 +862,22 @@ function renderThemeSection(s: StateSnapshot): string {
     })
     .join("");
 
-  return /* html */ `
-    <section class="panel">
-      <div class="panel-header">
-        <h2>${t("theme.title")}</h2>
-        <div class="row" style="gap: 8px;">
-          <button class="ghost" id="btn-open-themes" title="${escapeHtml(t("theme.openFolderTitle"))}">${t("theme.openFolder")}</button>
-          <button class="ghost" id="btn-refresh-themes" title="${escapeHtml(t("theme.refreshTitle"))}">${t("theme.refresh")}</button>
-          <button class="ghost" id="btn-reset-theme">${t("theme.resetAll")}</button>
-        </div>
-      </div>
-      <p class="muted" style="margin-top: 0;">${escapeHtml(def.description)}</p>
+  return renderPanel("theme", t("theme.title"), /* html */ `
+    <p class="muted" style="margin-top: 0;">${escapeHtml(def.description)}</p>
 
-      <div class="row" style="margin-bottom: 16px;">
-        <label for="theme-select" style="min-width: 80px;">${t("theme.activeLabel")}</label>
-        <select id="theme-select">${themeOptions}</select>
-      </div>
+    <div class="row" style="margin-bottom: 16px;">
+      <label for="theme-select" style="min-width: 80px;">${t("theme.activeLabel")}</label>
+      <select id="theme-select">${themeOptions}</select>
+    </div>
 
-      ${groupHtml}
-    </section>
-  `;
+    ${groupHtml}
+  `, {
+    summaryInfo: /* html */ `<strong>${escapeHtml(def.label)}</strong>`,
+    headerActions: /* html */ `
+      <button class="ghost" id="btn-open-themes" title="${escapeHtml(t("theme.openFolderTitle"))}">${t("theme.openFolder")}</button>
+      <button class="ghost" id="btn-refresh-themes" title="${escapeHtml(t("theme.refreshTitle"))}">${t("theme.refresh")}</button>
+      <button class="ghost" id="btn-reset-theme">${t("theme.resetAll")}</button>`,
+  });
 }
 
 function renderThemeVarControl(v: ThemeVarDef, current: string | number | boolean | undefined): string {

@@ -93,6 +93,10 @@ struct StateSnapshot {
     has_local_platform_candidates: bool,
     /// True when the HUD's position is locked (click-through, drag disabled).
     hud_position_locked: bool,
+    /// True when HUD edit mode is on (visible dashed border + larger resize
+    /// grip). Surfaced to the dashboard so the toggle stays in sync with
+    /// the persisted preference on every refresh.
+    hud_edit_mode: bool,
     /// When true, the HUD auto-shows on RL connect / auto-hides on disconnect.
     auto_hide_hud_when_offline: bool,
     /// Live per-match stats decoded from `UpdateState`. Empty between matches.
@@ -160,6 +164,7 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
         language: settings.language,
         has_local_platform_candidates: !state.local_platform_candidates.lock().is_empty(),
         hud_position_locked: settings.hud_position_locked,
+        hud_edit_mode: settings.hud_edit_mode,
         auto_hide_hud_when_offline: settings.auto_hide_hud_when_offline,
         match_stats: state.match_stats.lock().clone(),
         no_auto_install: state.no_auto_install.load(Ordering::SeqCst),
@@ -393,13 +398,23 @@ fn show_hud_window(
         );
     }
     window.show()?;
-    let settings = state.settings.lock();
-    if let Some((x, y)) = settings.hud_pos {
-        let _ = window.set_position(PhysicalPosition::new(x, y));
-    }
-    if let Some((w, h)) = settings.hud_size {
-        let _ = window.set_size(PhysicalSize::new(w, h));
-    }
+    let edit_mode = {
+        let settings = state.settings.lock();
+        if let Some((x, y)) = settings.hud_pos {
+            let _ = window.set_position(PhysicalPosition::new(x, y));
+        }
+        if let Some((w, h)) = settings.hud_size {
+            let _ = window.set_size(PhysicalSize::new(w, h));
+        }
+        settings.hud_edit_mode
+    };
+    // The HUD's webview may have just (re)loaded — push the persisted edit
+    // mode flag now so the dashed border + fat grip show up without
+    // requiring a settings-window round-trip.
+    let val = if edit_mode { "true" } else { "false" };
+    let _ = window.eval(&format!(
+        r#"try {{ document.documentElement.dataset.editMode = '{val}'; }} catch (_) {{}}"#
+    ));
     Ok(())
 }
 
@@ -501,11 +516,17 @@ fn set_hud_locked(
     {
         let mut s = state.settings.lock();
         s.hud_position_locked = locked;
+        // Mirror the master toggle. The old standalone "lock" checkbox is
+        // gone but the right-click context menu and tray-menu paths still
+        // call this entry point — keep the two states aligned so the next
+        // settings refresh reflects the right "Mode édition" position.
+        s.hud_edit_mode = !locked;
     }
     state.request_save_settings();
     if let Some(hud) = hud_window(&app) {
         let _ = hud.set_ignore_cursor_events(locked);
     }
+    push_hud_edit_mode(&app, !locked);
     let _ = app.emit("rlstats://hud-lock-changed", locked);
     Ok(())
 }
@@ -591,6 +612,95 @@ fn open_folder_in_explorer(path: &std::path::Path) -> std::io::Result<()> {
 fn open_folder_in_explorer(path: &std::path::Path) -> std::io::Result<()> {
     std::process::Command::new("xdg-open").arg(path).spawn()?;
     Ok(())
+}
+
+/// Resize the HUD proportionally to the factory-default base (400×300, in
+/// physical pixels — matches `tauri.conf.json` and the JS auto-fit's
+/// `SCALE_BASE_W/H`). `percent` is clamped to a sane range; the X/Y origin
+/// stays put so the user's positioning isn't disrupted by a scale tweak.
+/// The shared overlay JS picks up the new window size on its `resize` event
+/// and updates the `--hud-scale` CSS var so the panel content scales along
+/// with the window in lock-step.
+#[tauri::command]
+fn set_hud_scale(
+    app: AppHandle,
+    percent: u32,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let window = hud_window(&app).ok_or("HUD window not initialised")?;
+    let pct = percent.clamp(25, 400) as f64;
+    let new_w = ((DEFAULT_HUD_W as f64) * pct / 100.0).round() as u32;
+    let new_h = ((DEFAULT_HUD_H as f64) * pct / 100.0).round() as u32;
+    window
+        .set_size(PhysicalSize::new(new_w, new_h))
+        .map_err(|e| e.to_string())?;
+    {
+        let mut settings = state.settings.lock();
+        settings.hud_size = Some((new_w, new_h));
+        settings.save().map_err(|e| e.to_string())?;
+    }
+    // Push a fresh `--hud-scale` directly via eval so the inner content
+    // tracks the slider in real time, regardless of whether the cached
+    // overlay JS (older WebView2 cache) still listens to `resize`.
+    let scale = pct / 100.0;
+    let _ = window.eval(&format!(
+        r#"(function(){{
+            try {{
+                document.documentElement.style.setProperty('--hud-scale', '{scale}');
+                var p = document.querySelector('.panel');
+                if (p) {{
+                    p.style.transformOrigin = 'top left';
+                    p.style.transform = 'scale({scale})';
+                }}
+            }} catch (_) {{}}
+        }})();"#
+    ));
+    Ok(())
+}
+
+/// Single master toggle for HUD setup vs. play-time. Edit mode ON means
+/// "I'm arranging the HUD" — visible dashed border + fat resize grip,
+/// click-through OFF (so the user can drag), drag enabled. Edit mode OFF
+/// means "I'm done, leave it alone" — invisible chrome, click-through ON
+/// (cursor passes to the game), drag short-circuited. The two used to be
+/// separate (`hud_position_locked` + `hud_edit_mode` checkboxes), but in
+/// practice they were always toggled together — locked HUD with visible
+/// borders is useless, unlocked HUD without borders is hard to grab —
+/// so we collapsed them into one switch.
+#[tauri::command]
+fn set_hud_edit_mode(
+    app: AppHandle,
+    enabled: bool,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    {
+        let mut s = state.settings.lock();
+        s.hud_edit_mode = enabled;
+        // Edit mode ON ⇒ unlocked. Edit mode OFF ⇒ locked. Kept in lock-step
+        // so existing call sites that read `hud_position_locked` (drag
+        // handler, ignore_cursor_events) keep working without a refactor.
+        s.hud_position_locked = !enabled;
+    }
+    state.request_save_settings();
+    push_hud_edit_mode(&app, enabled);
+    if let Some(hud) = hud_window(&app) {
+        let _ = hud.set_ignore_cursor_events(!enabled);
+    }
+    let _ = app.emit("rlstats://hud-lock-changed", !enabled);
+    Ok(())
+}
+
+/// Inject the `:root[data-edit-mode]` toggle directly onto the live HUD so
+/// the dashed border / fat grip CSS rules in `_shared/menu.css` flip on
+/// without a reload. Safe to call before the page is loaded — `eval` queues
+/// the script until WebView2 has a document.
+fn push_hud_edit_mode(app: &AppHandle, enabled: bool) {
+    if let Some(hud) = hud_window(app) {
+        let val = if enabled { "true" } else { "false" };
+        let _ = hud.eval(&format!(
+            r#"try {{ document.documentElement.dataset.editMode = '{val}'; }} catch (_) {{}}"#
+        ));
+    }
 }
 
 /// Apply absolute HUD geometry from the settings UI: each of x/y/w/h is
@@ -960,6 +1070,8 @@ pub fn run() {
             toggle_hud,
             reload_hud,
             set_hud_geometry,
+            set_hud_scale,
+            set_hud_edit_mode,
             set_theme,
             set_theme_var,
             reset_theme_vars,
@@ -1032,6 +1144,7 @@ pub fn run() {
                         }
                     }
                     let should_show = settings.hud_visible;
+                    let edit_mode = settings.hud_edit_mode;
                     drop(settings);
                     if should_show {
                         let _ = hud.show();
@@ -1040,6 +1153,14 @@ pub fn run() {
                         // reload that `toggle_hud` does for cold paths.
                         app_state.hud_loaded.store(true, Ordering::SeqCst);
                     }
+                    // Sync the persisted edit-mode flag onto the HUD's
+                    // <html> element. The webview is already navigating to
+                    // the overlay URL by the time we reach this point;
+                    // `eval` queues the script until DOMContentLoaded.
+                    let val = if edit_mode { "true" } else { "false" };
+                    let _ = hud.eval(&format!(
+                        r#"try {{ document.documentElement.dataset.editMode = '{val}'; }} catch (_) {{}}"#
+                    ));
                 }
             }
 

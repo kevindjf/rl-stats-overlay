@@ -45,6 +45,14 @@ pub struct Settings {
     /// position once and prevent accidental drags during gameplay.
     #[serde(default)]
     pub hud_position_locked: bool,
+    /// HUD "edit mode" — when ON, the HUD draws a dashed outline along its
+    /// edges and a fat always-visible resize handle in the bottom-right
+    /// corner so the user can locate it without pixel-hunting. Persisted so
+    /// turning it on, dragging, restarting and toggling off works the way
+    /// users expect; defaults to OFF so OBS Browser Source captures stay
+    /// clean for everyone who never touches it.
+    #[serde(default)]
+    pub hud_edit_mode: bool,
     /// Active overlay theme. Maps to the folder name under `overlays/themes/`.
     #[serde(default = "default_theme")]
     pub theme: String,
