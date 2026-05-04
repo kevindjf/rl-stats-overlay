@@ -64,50 +64,6 @@ bun run dev/mock-server.ts
 
 Puis ouvre <http://localhost:49123/overlays/boost.html> directement dans Chrome. Pas besoin de Tauri.
 
-## Structure du repo
-
-```
-rl-stats-overlay/
-├── README.md                 # Doc utilisateur final
-├── LICENSE                   # MIT
-├── docs/                     # Docs supplémentaires
-├── src-tauri/                # Backend Rust + config Tauri
-│   ├── Cargo.toml            # Dépendances Rust
-│   ├── tauri.conf.json       # Config app + fenêtres + bundle
-│   ├── capabilities/         # Permissions Tauri 2
-│   ├── icons/                # Icônes (placeholder)
-│   └── src/
-│       ├── main.rs           # Entry point
-│       ├── lib.rs            # Tauri commands + bootstrap
-│       ├── state.rs          # AppState (Arc<Mutex>)
-│       ├── settings.rs       # Persistance JSON dans %APPDATA%
-│       ├── session.rs        # Logique W/L/streak
-│       ├── ini_patcher.rs    # Détection RL + patch DefaultStatsAPI.ini
-│       ├── ws_client.rs      # Client WebSocket vers ws://localhost:49123
-│       └── http_server.rs    # axum, sert overlays + /api/config
-├── src/                      # Frontend settings UI
-│   ├── index.html
-│   ├── main.ts               # Vanilla TS, render dashboard ou wizard
-│   └── style.css
-├── overlays/                 # Overlays HTML/CSS/JS bundle dans le binaire
-│   ├── boost.html
-│   ├── boost.css
-│   ├── boost.js
-│   └── shared/
-│       └── ws-client.js      # Logique reconnect WS partagée
-├── dev/                      # Outils dev — exclus du build prod
-│   ├── mock-server.ts        # Mock Stats API (Bun)
-│   ├── mock-control.html     # Panneau de pilotage faux match
-│   └── README.md
-├── .github/workflows/
-│   ├── build.yml             # CI Windows + macOS sur push/PR
-│   └── release.yml           # GitHub Release sur tag v*
-├── package.json
-├── tsconfig.json
-├── vite.config.ts
-└── .gitignore
-```
-
 ## Commandes utiles
 
 | Commande | Effet |
@@ -118,45 +74,7 @@ rl-stats-overlay/
 | `bun run dev` | Lance Vite seul (settings UI uniquement) |
 | `bun run build` | Build le frontend Vite |
 
-## Architecture en quelques mots
-
-```
-┌────────────────────────────────────────────────────────────┐
-│ Tauri app (Rust binary)                                    │
-│                                                            │
-│   ┌──────────────┐   ┌─────────────────┐                   │
-│   │ Settings UI  │   │ In-game HUD     │                   │
-│   │ (Vite Webview│   │ (Webview, loads │                   │
-│   │  on /)       │   │  http://...)    │                   │
-│   └──────┬───────┘   └────────┬────────┘                   │
-│          │ invoke()           │ HTTP                       │
-│   ┌──────▼────────────────────▼──────┐                     │
-│   │      lib.rs — Tauri commands     │                     │
-│   │      + state.rs (AppState)       │                     │
-│   └──────┬──────────────────────┬────┘                     │
-│          │                      │                          │
-│   ┌──────▼─────────┐   ┌────────▼──────────┐               │
-│   │ ws_client.rs   │   │ http_server.rs    │               │
-│   │ → ws://:49123  │   │ axum on :49124    │               │
-│   │   (Stats API)  │   │ - /overlays/*     │               │
-│   │                │   │ - /api/config     │               │
-│   └────────────────┘   └───────────────────┘               │
-│                                                            │
-│   Persistence: %APPDATA%/RLStatsOverlay/settings.json      │
-└────────────────────────────────────────────────────────────┘
-                          │
-            ws://:49123   │   http://:49124
-                          ▼
-                  Rocket League (Stats API)
-                          ┊
-                  Or, in dev:
-                  Bun mock-server.ts
-```
-
-- L'app **n'écoute pas** les ports — elle est *cliente* du WebSocket Stats API et *serveuse* HTTP pour les overlays.
-- Le **HUD in-game** est une fenêtre Tauri secondaire qui charge `http://localhost:49124/overlays/boost.html` — la même URL que celle copiée pour OBS.
-- L'**OBS browser source** charge la même URL — donc les deux affichages sont identiques.
-- Le **localStorage** côté navigateur sert à éviter de perdre la session si l'app crash, mais la **vérité** reste côté Rust (`settings.json`).
+> 📐 Pour la **structure du repo** + le **diagramme d'architecture**, voir [Architecture](architecture.md).
 
 ## Tests
 

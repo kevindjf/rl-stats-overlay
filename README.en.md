@@ -11,6 +11,14 @@
   <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-lightgrey?style=for-the-badge">
 </p>
 
+<p align="center">
+  <a href="https://kevindjf.github.io/rl-stats-overlay/en/"><strong>📖 Full documentation</strong></a> ·
+  <a href="https://kevindjf.github.io/rl-stats-overlay/en/install/">Install</a> ·
+  <a href="https://kevindjf.github.io/rl-stats-overlay/en/hud/">In-game HUD</a> ·
+  <a href="https://kevindjf.github.io/rl-stats-overlay/en/obs/">OBS</a> ·
+  <a href="https://kevindjf.github.io/rl-stats-overlay/en/themes/">Themes</a>
+</p>
+
 ---
 
 ## ✨ What it does
@@ -23,12 +31,13 @@
 - **A live overlay of your session**: number of **wins**, **losses**, and the current **streak** (🔥 win streak, ❄️ loss streak). Numbers update on their own at the end of every match.
 - **Live in-match stats**: goals, saves, shots, assists — pulled in real time from the Stats API and shown in the dashboard and compatible themes.
 - **Two display modes** (or both at once):
-  - 🎮 **In-game HUD** — a small transparent window placed on top of Rocket League. Drag with the mouse to reposition, right-click for the context menu (Reset session / Lock / Quit), 1-click lock once placed. Auto-scales to your monitor's DPI on first launch (1080p / 1440p / 4K / 5K+).
+  - 🎮 **In-game HUD** — a small transparent window placed on top of Rocket League. **Edit mode** to move/resize it with the mouse (drag the middle to move, bottom-right grip to scale), turned off during play so clicks pass through to the game. **Scale slider** in settings for percent-perfect sizing. Right-click for the context menu (Reset session / Lock / Quit). Auto-scales to your monitor's DPI on first launch (1080p / 1440p / 4K / 5K+).
   - 📺 **OBS Browser Source** — URL to paste into a Browser Source for your stream.
 - **Quick floating launcher**: a small clickable circle on the left edge of your screen opens the settings window in one click. Auto-hidden during a match.
-- **Several themes** ready to use (and you can build your own — see [the designer guide](docs/themes-en.md))
+- **Several themes** ready to use (and you can build your own — see [the designer guide](docs/themes/designer-guide.en.md))
 - **Smart session**: your wins/losses are saved and persist between restarts. The session resets itself after 6h of inactivity (new gaming day = clean counters).
 - **Auto-hide HUD when RL is offline** (option): the HUD appears on its own when Rocket League opens and disappears when it closes.
+- **Collapsible settings window**: every section (Session, Player, Appearance, HUD, OBS, Theme) folds away with one click on its title. When collapsed, a brief summary stays visible on the right (e.g. `12W · 5L · +3` for the session, `Circle` for the active theme), and the open/closed state is remembered across restarts.
 - **Guided setup**: no need to dig through your files — the app finds your Rocket League install on its own (Steam or Epic), turns on the "live stats" feature already built into the game (but disabled by default), and **auto-detects your local Steam/Epic account**. No name typing required in the majority of cases — the overlay identifies you on the first match (and follows account switches transparently).
 
 ## 🚀 Install (3 minutes, zero command line)
@@ -59,9 +68,13 @@
 
 1. Open RL Stats Overlay
 2. Click **▶ Show HUD** → a transparent window appears
-3. **Drag it with the mouse** wherever you want. For pixel-perfect placement, you can also use the **X / Y / W / H** fields in the *HUD* section (step adjustable from 1 to 50 px). All values are persisted.
-4. **Right-click on the HUD**: quick menu to reset the session, lock the position (click-through), or quit the app.
-5. Once placed, tick **"Lock position"** in the *Appearance* section — the HUD becomes click-through (cursor events pass to the game).
+3. Turn on **Edit mode** in the *In-game HUD* section — a dashed cyan border shows up around the HUD with a chunky grip in the bottom-right corner.
+4. **Place it where you want**:
+   - **Drag the middle** of the HUD with the mouse to move it.
+   - **Drag the bottom-right grip** to resize — content (cards, icons, text) scales along with the window automatically.
+   - Or use the **Scale slider** (50 % – 250 %) and the **X / Y / W / H** fields in the panel for pixel-perfect placement.
+5. **Turn Edit mode off** once you're happy with the placement — the HUD becomes click-through (cursor events pass to the game) and the cyan border disappears.
+6. **Right-click on the HUD** (always available): quick menu to reset the session, toggle edit mode, or quit the app.
 
 > ⚠️ **Important**: Rocket League must run in **borderless fullscreen** for the transparent window to show on top of it. In RL: *Settings → Video → Window Mode → **Borderless**.* (Exclusive "Fullscreen" mode is not supported by Windows for overlays — that's a system limitation, not the app's.)
 
@@ -93,7 +106,7 @@ You can delete it to start over (the wizard will run again).
 
 ## 🧰 For developers / contributors
 
-See [docs/development.md](docs/development.md) for:
+See [docs/contributing/development.md](docs/contributing/development.md) for:
 
 - Running the app in dev mode (Windows or macOS)
 - Testing overlays without Rocket League via the mock server (`bun run dev/mock-server.ts`)

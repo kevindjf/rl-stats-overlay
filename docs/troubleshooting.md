@@ -63,14 +63,17 @@ Si un PID s'affiche, c'est qu'un autre process bloque RL d'utiliser ce port. Ter
 
 ## Le HUD in-game est click-through, je ne peux pas le déplacer
 
-C'est volontaire — le HUD est click-through par défaut pour ne pas gêner le jeu.
+C'est volontaire — le HUD est **clic-traversant** par défaut pour ne pas gêner le jeu.
 
 Pour le repositionner :
 
-- Clique **📐 Repositionner** dans la fenêtre principale, OU
-- Appuie sur le raccourci global <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd>
+1. Ouvre la fenêtre des réglages (icône système ou bouton flottant).
+2. Déplie la section **HUD en jeu**.
+3. Coche **Mode édition** — une bordure cyan pointillée apparaît autour du HUD avec une grosse poignée bas-droit.
+4. Glisse-le à la souris (drag au milieu) ou redimensionne-le avec la poignée.
+5. Décoche **Mode édition** une fois bien placé pour que le HUD redevienne clic-traversant.
 
-Tu peux maintenant déplacer/redimensionner la fenêtre normalement. Une fois positionnée, ré-appuie sur <kbd>Ctrl + Shift + L</kbd> pour réactiver le click-through.
+Voir [HUD → Mode édition](hud/edit-mode.md) pour les détails.
 
 ---
 
@@ -100,4 +103,4 @@ Comme il n'est pas signé et embarque un serveur HTTP local + un client WebSocke
 
 - Vérifie sur [VirusTotal](https://www.virustotal.com) — la grande majorité des moteurs ne flag pas
 - Le code source complet est dans ce dépôt, audit possible
-- Tu peux aussi compiler toi-même depuis les sources (voir [docs/development.md](development.md))
+- Tu peux aussi compiler toi-même depuis les sources (voir [Contribuer → Développement](contributing/development.md))

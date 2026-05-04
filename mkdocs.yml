@@ -1,0 +1,161 @@
+site_name: RL Stats Overlay
+site_description: Overlay Rocket League pour OBS et HUD in-game — compatible Easy Anti-Cheat.
+site_url: https://kevindjf.github.io/rl-stats-overlay/
+site_author: kevindjf
+copyright: Copyright &copy; kevindjf — MIT License
+
+repo_name: kevindjf/rl-stats-overlay
+repo_url: https://github.com/kevindjf/rl-stats-overlay
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  language: fr
+  logo: images/icon.png
+  favicon: images/favicon.png
+  font:
+    text: Inter
+    code: JetBrains Mono
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Passer en mode sombre
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Passer en mode clair
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - navigation.tracking
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - content.tabs.link
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/kevindjf/rl-stats-overlay
+
+plugins:
+  - search:
+      lang:
+        - fr
+        - en
+  - i18n:
+      docs_structure: suffix
+      fallback_to_default: true
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: fr
+          name: Français
+          default: true
+          build: true
+          site_name: RL Stats Overlay
+        - locale: en
+          name: English
+          default: false
+          build: true
+          site_name: RL Stats Overlay
+          nav_translations:
+            Accueil: Home
+            Installation: Install
+            HUD in-game: In-game HUD
+            Vue d'ensemble: Overview
+            Mode édition: Edit mode
+            Bouton flottant: Floating launcher
+            Auto-masquage: Auto-hide
+            OBS: OBS
+            Réglages: Settings
+            Thèmes: Themes
+            Thèmes inclus: Bundled themes
+            Guide designer: Designer guide
+            Dépannage: Troubleshooting
+            Référence: Reference
+            Stats API Psyonix: Psyonix Stats API
+            Contribuer: Contributing
+            Développement: Development
+            Architecture: Architecture
+  - glightbox:
+      touchNavigation: true
+      loop: false
+      effect: zoom
+      slide_effect: slide
+      width: 100%
+      height: auto
+      zoomable: true
+      draggable: true
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.snippets
+  - pymdownx.smartsymbols
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Accueil: index.md
+  - Installation: install.md
+  - HUD in-game:
+      - Vue d'ensemble: hud/index.md
+      - Mode édition: hud/edit-mode.md
+      - Bouton flottant: hud/floating-launcher.md
+      - Auto-masquage: hud/auto-hide.md
+  - OBS: obs/index.md
+  - Réglages: settings/index.md
+  - Thèmes:
+      - Thèmes inclus: themes/index.md
+      - Guide designer: themes/designer-guide.md
+  - Dépannage: troubleshooting.md
+  - Référence:
+      - Stats API Psyonix: reference/stats-api.md
+  - Contribuer:
+      - Développement: contributing/development.md
+      - Architecture: contributing/architecture.md

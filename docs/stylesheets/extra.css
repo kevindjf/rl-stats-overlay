@@ -1,0 +1,10 @@
+:root {
+  --md-primary-fg-color: #5865F2;
+  --md-primary-fg-color--light: #7983F5;
+  --md-primary-fg-color--dark: #404EED;
+}
+
+.md-typeset .grid.cards > :is(ul, ol) > li,
+.md-typeset .grid > .card {
+  border-radius: 12px;
+}

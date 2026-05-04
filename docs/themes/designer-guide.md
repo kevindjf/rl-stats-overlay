@@ -1,6 +1,6 @@
 # Créer un thème custom
 
-> Pour la version anglaise : voir [`themes-en.md`](themes-en.md).
+> 🇬🇧 English version available via the language switcher (top-right of this page).
 
 Ce guide t'explique comment créer ton propre thème pour l'overlay, le tester, et le partager. Pas besoin de savoir programmer — il suffit de connaître un peu de HTML / CSS (le langage des pages web) et de pouvoir éditer des fichiers texte.
 
@@ -13,7 +13,7 @@ Ce guide t'explique comment créer ton propre thème pour l'overlay, le tester, 
 1. **Lance l'app** RL Stats Overlay.
 2. Va dans la section **Theme** des paramètres.
 3. Clique sur **📁 Dossier des thèmes**. L'Explorateur Windows s'ouvre sur `%APPDATA%/RLStatsOverlay/themes/`.
-4. Dans le dépôt GitHub du projet, copie le dossier [`overlays/themes/_template/`](../overlays/themes/_template/) et colle-le à l'emplacement ouvert.
+4. Dans le dépôt GitHub du projet, copie le dossier [`overlays/themes/_template/`](https://github.com/kevindjf/rl-stats-overlay/tree/main/overlays/themes/_template/) et colle-le à l'emplacement ouvert.
 5. Renomme-le (par exemple : `mon-super-theme`). **Important** : pas d'espaces, pas d'accents, pas de caractères spéciaux — uniquement lettres, chiffres, tirets ou underscores.
 6. Reviens dans l'app et clique sur **🔄 Rafraîchir**. Ton thème apparaît dans la liste déroulante.
 7. Sélectionne-le. Il s'affiche immédiatement dans le HUD.
@@ -260,8 +260,8 @@ Pour **installer** un thème reçu, c'est exactement le même flow que pour cré
 
 Regarde le code des thèmes intégrés dans le repo GitHub :
 
-- [`overlays/themes/circle/`](../overlays/themes/circle/) — le thème par défaut, avec un arc SVG qui épouse la jauge de boost
-- [`overlays/themes/minimal/`](../overlays/themes/minimal/) — un thème dépouillé, super simple
-- [`overlays/themes/redesigned/`](../overlays/themes/redesigned/) — un thème "panel-less" avec de gros chiffres
+- [`overlays/themes/circle/`](https://github.com/kevindjf/rl-stats-overlay/tree/main/overlays/themes/circle/) — le thème par défaut, avec un arc SVG qui épouse la jauge de boost
+- [`overlays/themes/minimal/`](https://github.com/kevindjf/rl-stats-overlay/tree/main/overlays/themes/minimal/) — un thème dépouillé, super simple
+- [`overlays/themes/redesigned/`](https://github.com/kevindjf/rl-stats-overlay/tree/main/overlays/themes/redesigned/) — un thème "panel-less" avec de gros chiffres
 
 Ils sont sous licence MIT, tu peux t'en inspirer ou les remixer librement.

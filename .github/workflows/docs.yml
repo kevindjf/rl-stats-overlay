@@ -1,0 +1,50 @@
+name: Deploy docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: .github/workflows/docs.yml
+
+      - name: Install MkDocs + plugins
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            mkdocs-material==9.5.* \
+            mkdocs-static-i18n==1.2.* \
+            mkdocs-glightbox==0.4.* \
+            pymdown-extensions==10.*
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Build & deploy
+        run: mkdocs gh-deploy --force --clean --verbose

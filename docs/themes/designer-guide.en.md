@@ -1,6 +1,6 @@
 # Building a custom theme
 
-> French version: see [`themes-fr.md`](themes-fr.md).
+> 🇫🇷 Version française disponible via le sélecteur de langue (en haut à droite de cette page).
 
 This guide walks you through making your own RL Stats Overlay theme, testing it, and sharing it. You don't need to be a developer — basic HTML/CSS knowledge and the ability to edit a text file are enough.
 
@@ -13,7 +13,7 @@ This guide walks you through making your own RL Stats Overlay theme, testing it,
 1. **Launch** the RL Stats Overlay app.
 2. Open the **Theme** section in settings.
 3. Click **📁 Dossier des thèmes**. Windows Explorer opens at `%APPDATA%/RLStatsOverlay/themes/`.
-4. From the project's GitHub repo, copy the [`overlays/themes/_template/`](../overlays/themes/_template/) folder and paste it where Explorer just opened.
+4. From the project's GitHub repo, copy the [`overlays/themes/_template/`](https://github.com/kevindjf/rl-stats-overlay/tree/main/overlays/themes/_template/) folder and paste it where Explorer just opened.
 5. Rename it (e.g. `my-cool-theme`). **Important**: no spaces, no accented chars, no special chars — only letters, digits, dashes or underscores.
 6. Switch back to the app and click **🔄 Rafraîchir**. Your theme shows up in the dropdown.
 7. Pick it. The HUD updates immediately.
@@ -260,8 +260,8 @@ To **install** a theme someone shared: same flow as creating one — extract the
 
 Read the code of the bundled themes in the repo:
 
-- [`overlays/themes/circle/`](../overlays/themes/circle/) — the default theme, with an SVG arc hugging the boost gauge
-- [`overlays/themes/minimal/`](../overlays/themes/minimal/) — a stripped-down, super-clean theme
-- [`overlays/themes/redesigned/`](../overlays/themes/redesigned/) — a panel-less theme with big bold numbers
+- [`overlays/themes/circle/`](https://github.com/kevindjf/rl-stats-overlay/tree/main/overlays/themes/circle/) — the default theme, with an SVG arc hugging the boost gauge
+- [`overlays/themes/minimal/`](https://github.com/kevindjf/rl-stats-overlay/tree/main/overlays/themes/minimal/) — a stripped-down, super-clean theme
+- [`overlays/themes/redesigned/`](https://github.com/kevindjf/rl-stats-overlay/tree/main/overlays/themes/redesigned/) — a panel-less theme with big bold numbers
 
 They're MIT-licensed; remix or fork them freely.

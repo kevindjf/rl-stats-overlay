@@ -37,3 +37,8 @@ Thumbs.db
 # Claude Code local state — absolute paths and per-user permission allowlists.
 # Never commit.
 .claude/
+
+# MkDocs build output + local Python venv used to preview the docs site
+/site/
+/.cache/
+/.venv-docs/
