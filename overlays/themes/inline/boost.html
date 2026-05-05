@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>RL Boost Overlay — Inline</title>
+  <link rel="stylesheet" href="./boost.css" />
+</head>
+<body>
+  <!-- Inline theme: a single horizontal pill with three stat groups. Designed
+       to be placed along an edge of the screen via the dashboard's snap
+       presets (top-right, bottom-center, etc.) or dragged manually. -->
+  <div class="panel" role="img" aria-label="Session stats panel">
+    <span class="conn-dot" id="conn" title="Stats API connection"></span>
+
+    <div class="cell streak-cell">
+      <span class="label">STRK</span>
+      <span class="value streak" id="v-streak">+0</span>
+    </div>
+    <span class="sep"></span>
+    <div class="cell win-cell">
+      <span class="label">W</span>
+      <span class="value win" id="v-wins">0</span>
+    </div>
+    <span class="sep"></span>
+    <div class="cell loss-cell">
+      <span class="label">L</span>
+      <span class="value loss" id="v-losses">0</span>
+    </div>
+  </div>
+
+  <script type="module" src="./boost.js"></script>
+  <!-- Shared HUD interactions (drag, right-click menu). -->
+  <script src="/overlays/themes/_shared/menu.js"></script>
+</body>
+</html>

@@ -588,6 +588,30 @@ footer a { color: var(--info); text-decoration: none; }
   border-color: var(--info);
 }
 
+/* ----- HUD snap presets --------------------------------------------------- */
+
+.hud-snap {
+  margin-top: 16px;
+}
+
+.snap-row {
+  margin-top: 6px;
+}
+
+.snap-row select {
+  width: 100%;
+  max-width: 280px;
+  padding: 8px 10px;
+  background: #0a0d13;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.snap-row select:focus { outline: none; border-color: var(--info); }
+
 /* ----- HUD scale slider --------------------------------------------------- */
 
 .hud-scale {

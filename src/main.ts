@@ -55,6 +55,8 @@ interface StateSnapshot {
   hud_y: number;
   hud_w: number;
   hud_h: number;
+  hud_scale_base_w: number;
+  hud_scale_base_h: number;
   count_team_sizes: number[];
   language: LangPref;
   has_local_platform_candidates: boolean;
@@ -174,6 +176,18 @@ const _FALLBACK_THEMES: ThemeDef[] = [
       { key: "colorStreakIcon",  label: "Streak icon (flame)",  group: "Colors", spec: { kind: "color", default: "#ffb13a" } },
 
       { key: "showIcons",        label: "Show icons",           group: "Layout", spec: { kind: "boolean", default: true } },
+    ],
+  },
+  {
+    id: "inline",
+    label: "Inline",
+    description: "Single horizontal line — fits along the top or bottom edge of the screen. Snap to 9 anchor presets from the dashboard.",
+    vars: [
+      { key: "colorPanelBg",     label: "Panel background", group: "Colors", spec: { kind: "color", default: "#0f121aCC" } },
+      { key: "colorPanelBorder", label: "Panel border",     group: "Colors", spec: { kind: "color", default: "#1e2230" } },
+      { key: "colorWin",         label: "Wins value",       group: "Colors", spec: { kind: "color", default: "#5dd16f" } },
+      { key: "colorLoss",        label: "Losses value",     group: "Colors", spec: { kind: "color", default: "#ff5c5c" } },
+      { key: "colorStreakIcon",  label: "Streak value",     group: "Colors", spec: { kind: "color", default: "#ffb13a" } },
     ],
   },
 ];
@@ -554,10 +568,13 @@ function renderDashboard() {
             ${renderGeomStepper("Width",  "geom-w", s.hud_w)}
             ${renderGeomStepper("Height", "geom-h", s.hud_h)}
           </div>
+
+          ${renderHudSnapPresets()}
         </div>
       `, {
         summaryInfo: (() => {
-          const pct = Math.round((s.hud_w / 400) * 100);
+          const baseW = s.hud_scale_base_w || 400;
+          const pct = Math.round((s.hud_w / baseW) * 100);
           const visible = s.hud_visible
             ? `<span class="info-ok">●</span> ${t("hud.show").replace(/^▶\s*/, "")}`
             : `<span class="muted">○ ${t("hud.hide").replace(/^🟢\s*/, "").replace(/\s*—\s*.*/, "")}</span>`;
@@ -679,6 +696,7 @@ function renderDashboard() {
   document.getElementById("btn-quit-app")?.addEventListener("click", onQuitApp);
 
   bindGeomListeners();
+  bindHudSnapListeners();
   bindHudScale();
   bindThemeListeners();
   bindPanelCollapse();
@@ -725,7 +743,8 @@ function renderMatchStatsBlock(s: StateSnapshot): string {
 /// drag, or a previous scale call. Backend clamps to 25–400 %; we cap the UI
 /// at 250 % to keep the slider's resolution useful.
 function renderHudScale(s: StateSnapshot): string {
-  const pct = Math.max(25, Math.min(400, Math.round((s.hud_w / 400) * 100)));
+  const baseW = s.hud_scale_base_w || 400;
+  const pct = Math.max(25, Math.min(400, Math.round((s.hud_w / baseW) * 100)));
   return /* html */ `
     <div class="hud-scale">
       <div class="hud-scale-row">
@@ -802,6 +821,62 @@ function renderGeomStepper(label: string, idPrefix: string, value: number): stri
         <button class="geom-btn" data-axis="${idPrefix}" data-dir="1" title="+">+</button>
       </div>
     </div>`;
+}
+
+// ----- HUD snap presets ----------------------------------------------------
+
+/// 3×3 grid of "snap to edge" buttons. Clicking one moves the HUD window so
+/// it sits in the chosen corner / edge / center of the current monitor —
+/// useful for placing the inline theme flush against the screen edge
+/// without dragging.
+function renderHudSnapPresets(): string {
+  const presets: Array<{ id: string; label: string }> = [
+    { id: "top-left",      label: t("hud.snap.topLeft") },
+    { id: "top-center",    label: t("hud.snap.topCenter") },
+    { id: "top-right",     label: t("hud.snap.topRight") },
+    { id: "middle-left",   label: t("hud.snap.middleLeft") },
+    { id: "center",        label: t("hud.snap.center") },
+    { id: "middle-right",  label: t("hud.snap.middleRight") },
+    { id: "bottom-left",   label: t("hud.snap.bottomLeft") },
+    { id: "bottom-center", label: t("hud.snap.bottomCenter") },
+    { id: "bottom-right",  label: t("hud.snap.bottomRight") },
+  ];
+  const options = presets
+    .map(
+      (p) => `<option value="${p.id}">${escapeHtml(p.label)}</option>`,
+    )
+    .join("");
+  return /* html */ `
+    <div class="hud-snap">
+      <label for="hud-snap-select" class="geom-label">${t("hud.snap.title")}</label>
+      <div class="snap-row">
+        <select id="hud-snap-select">
+          <option value="" disabled selected>${t("hud.snap.placeholder")}</option>
+          ${options}
+        </select>
+      </div>
+      <p class="muted" style="margin: 4px 0 0; font-size: 11px;">${t("hud.snap.hint")}</p>
+    </div>
+  `;
+}
+
+function bindHudSnapListeners() {
+  const sel = document.getElementById("hud-snap-select") as HTMLSelectElement | null;
+  if (!sel) return;
+  sel.addEventListener("change", async () => {
+    const preset = sel.value;
+    if (!preset) return;
+    try {
+      await invoke("snap_hud_to_preset", { preset });
+    } catch (err) {
+      console.error("snap_hud_to_preset failed", err);
+      return;
+    }
+    // Reset back to the placeholder so re-picking the same preset re-fires
+    // (a `change` event won't fire if the value didn't change).
+    sel.value = "";
+    await refresh();
+  });
 }
 
 function bindGeomListeners() {

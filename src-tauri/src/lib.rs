@@ -83,6 +83,13 @@ struct StateSnapshot {
     hud_y: i32,
     hud_w: u32,
     hud_h: u32,
+    /// Physical-pixel size of the HUD window at "100 %" scale, on the monitor
+    /// the HUD currently lives on. Equals `DEFAULT_HUD_W/H * scale_factor` —
+    /// frontend uses these to render the Scale slider so 100 % means the
+    /// natural Retina/HiDPI-aware size, not raw 400×300 (which would shrink
+    /// the window to half its boot size on a 2x display).
+    hud_scale_base_w: u32,
+    hud_scale_base_h: u32,
     /// Team sizes (1..=4) currently counted toward the W/L tally.
     count_team_sizes: Vec<u8>,
     /// UI language preference: "auto" | "fr" | "en".
@@ -143,6 +150,13 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
         .map(|s| (s.width, s.height))
         .or(settings.hud_size)
         .unwrap_or((400, 300));
+    let scale_factor = win
+        .as_ref()
+        .and_then(|w| w.scale_factor().ok())
+        .unwrap_or(1.0)
+        .max(1.0);
+    let hud_scale_base_w = ((DEFAULT_HUD_W as f64) * scale_factor).round() as u32;
+    let hud_scale_base_h = ((DEFAULT_HUD_H as f64) * scale_factor).round() as u32;
 
     StateSnapshot {
         connected: state.connected.load(Ordering::SeqCst),
@@ -160,6 +174,8 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
         hud_y,
         hud_w,
         hud_h,
+        hud_scale_base_w,
+        hud_scale_base_h,
         count_team_sizes: settings.count_team_sizes,
         language: settings.language,
         has_local_platform_candidates: !state.local_platform_candidates.lock().is_empty(),
@@ -629,8 +645,15 @@ fn set_hud_scale(
 ) -> Result<(), String> {
     let window = hud_window(&app).ok_or("HUD window not initialised")?;
     let pct = percent.clamp(25, 400) as f64;
-    let new_w = ((DEFAULT_HUD_W as f64) * pct / 100.0).round() as u32;
-    let new_h = ((DEFAULT_HUD_H as f64) * pct / 100.0).round() as u32;
+    // Multiply by scale_factor so "100 %" matches the boot-natural size on
+    // Retina / HiDPI monitors. Without this the window would shrink to half
+    // its boot size at 100 % on macOS Retina (scale 2.0), since the conf
+    // declares logical 400×300 but `set_size(PhysicalSize)` is physical.
+    let scale_factor = window.scale_factor().unwrap_or(1.0).max(1.0);
+    let base_w = (DEFAULT_HUD_W as f64) * scale_factor;
+    let base_h = (DEFAULT_HUD_H as f64) * scale_factor;
+    let new_w = (base_w * pct / 100.0).round() as u32;
+    let new_h = (base_h * pct / 100.0).round() as u32;
     window
         .set_size(PhysicalSize::new(new_w, new_h))
         .map_err(|e| e.to_string())?;
@@ -701,6 +724,76 @@ fn push_hud_edit_mode(app: &AppHandle, enabled: bool) {
             r#"try {{ document.documentElement.dataset.editMode = '{val}'; }} catch (_) {{}}"#
         ));
     }
+}
+
+/// Snap the HUD window to one of nine anchor presets on the monitor it
+/// currently lives on (the one containing the window's top-left, or the
+/// primary monitor if the window is off-screen). Margin is a logical 16 px
+/// scaled up by the monitor's DPI factor so the gap looks consistent across
+/// 1080p / 1440p / 4K. Persists the new position so it survives a restart.
+///
+/// Accepted preset values: `top-left`, `top-center`, `top-right`,
+/// `middle-left`, `center`, `middle-right`, `bottom-left`, `bottom-center`,
+/// `bottom-right`. Unknown values are rejected.
+#[tauri::command]
+fn snap_hud_to_preset(
+    app: AppHandle,
+    preset: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let window = hud_window(&app).ok_or("HUD window not initialised")?;
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .or_else(|| window.primary_monitor().ok().flatten())
+        .ok_or("no monitor available")?;
+
+    let mon_pos = monitor.position();
+    let mon_size = monitor.size();
+    let scale = monitor.scale_factor().max(1.0);
+    let margin = (16.0 * scale).round() as i32;
+
+    let win_size = window.outer_size().map_err(|e| e.to_string())?;
+    let w = win_size.width as i32;
+    let h = win_size.height as i32;
+    let mw = mon_size.width as i32;
+    let mh = mon_size.height as i32;
+
+    let (anchor_x, anchor_y) = match preset.as_str() {
+        "top-left"      => ("left",   "top"),
+        "top-center"    => ("center", "top"),
+        "top-right"     => ("right",  "top"),
+        "middle-left"   => ("left",   "middle"),
+        "center"        => ("center", "middle"),
+        "middle-right"  => ("right",  "middle"),
+        "bottom-left"   => ("left",   "bottom"),
+        "bottom-center" => ("center", "bottom"),
+        "bottom-right"  => ("right",  "bottom"),
+        other => return Err(format!("unknown preset: {other}")),
+    };
+
+    let x = match anchor_x {
+        "left"   => mon_pos.x + margin,
+        "center" => mon_pos.x + ((mw - w) / 2).max(0),
+        "right"  => mon_pos.x + (mw - w - margin).max(0),
+        _        => mon_pos.x,
+    };
+    let y = match anchor_y {
+        "top"    => mon_pos.y + margin,
+        "middle" => mon_pos.y + ((mh - h) / 2).max(0),
+        "bottom" => mon_pos.y + (mh - h - margin).max(0),
+        _        => mon_pos.y,
+    };
+
+    window
+        .set_position(PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    {
+        let mut settings = state.settings.lock();
+        settings.hud_pos = Some((x, y));
+    }
+    state.request_save_settings();
+    Ok(())
 }
 
 /// Apply absolute HUD geometry from the settings UI: each of x/y/w/h is
@@ -863,43 +956,52 @@ fn reconcile_launcher_visibility(handle: &AppHandle, state: &Arc<AppState>) {
     }
 }
 
-/// Default HUD size (`tauri.conf.json`: 400×300 physical pixels). Kept in
-/// sync with the window declaration — if you bump the conf, bump this.
+/// Default HUD size declared in `tauri.conf.json`, in *logical* pixels —
+/// Tauri interprets `width` / `height` from the conf as logical, then the OS
+/// applies the monitor's scale factor at window creation time. So on a
+/// Retina Mac (scale 2.0) the natural boot size is 800×600 physical, while
+/// on a 1× Windows it's 400×300 physical. Every scale-related calculation
+/// must multiply by `scale_factor` before talking to `set_size(PhysicalSize)`
+/// — otherwise the slider's "100 %" silently shrinks the window to half its
+/// boot size on HiDPI displays.
 const DEFAULT_HUD_W: u32 = 400;
 const DEFAULT_HUD_H: u32 = 300;
 
 /// Pick a one-shot HUD size based on the monitor the HUD lands on at boot.
-/// Returns `None` when we can't read the monitor (we'd rather keep the
-/// configured default than guess wrong); otherwise scales the 400×300 base
-/// up by the same multiplier so the HUD stays visually the same fraction
-/// of screen height across resolutions:
+/// Returns `None` when the natural boot size (= logical 400×300 × monitor
+/// scale factor) is already a sensible fraction of screen height; otherwise
+/// returns physical pixels for the bumped-up size.
 ///
-/// * ≤1080p → 1.00× (no change)
-/// * ≤1440p → 1.25×
-/// * ≤2160p (4K) → 1.50×
-/// * larger (5K+) → 2.00×
+/// Ladder is keyed off the *logical* monitor height (= physical / scale
+/// factor) so a Retina 1440p MacBook (2880×1800 physical, scale 2 → 1440
+/// logical) classifies as 1440p, not 5K:
 ///
-/// Decision is based on the monitor's physical *height* — width-only ladders
-/// misclassify ultrawides where 3440×1440 is logically 1440p, not 2K-wide.
+/// * ≤1080 logical → 1.00× (return None; let the natural boot size stand)
+/// * ≤1440 logical → 1.25×
+/// * ≤2160 logical → 1.50×
+/// * larger        → 2.00×
 fn dpi_default_hud_size(hud: &WebviewWindow) -> Option<(u32, u32)> {
     let monitor = hud.current_monitor().ok().flatten()?;
-    let h = monitor.size().height;
-    let factor: f64 = if h <= 1080 {
+    let scale = monitor.scale_factor().max(1.0);
+    let logical_h = (monitor.size().height as f64 / scale).round() as u32;
+    let factor: f64 = if logical_h <= 1080 {
         1.0
-    } else if h <= 1440 {
+    } else if logical_h <= 1440 {
         1.25
-    } else if h <= 2160 {
+    } else if logical_h <= 2160 {
         1.5
     } else {
         2.0
     };
     if (factor - 1.0).abs() < f64::EPSILON {
         // Nothing to scale — return None so the caller leaves `hud_size`
-        // as `None` and a future tauri.conf bump propagates naturally.
+        // as `None` and the natural Retina/HiDPI boot size stands.
         return None;
     }
-    let w = (DEFAULT_HUD_W as f64 * factor).round() as u32;
-    let new_h = (DEFAULT_HUD_H as f64 * factor).round() as u32;
+    // Output is *physical* pixels (set_size takes PhysicalSize), so multiply
+    // by both the resolution-class factor AND the monitor scale factor.
+    let w = (DEFAULT_HUD_W as f64 * factor * scale).round() as u32;
+    let new_h = (DEFAULT_HUD_H as f64 * factor * scale).round() as u32;
     Some((w, new_h))
 }
 
@@ -1070,6 +1172,7 @@ pub fn run() {
             toggle_hud,
             reload_hud,
             set_hud_geometry,
+            snap_hud_to_preset,
             set_hud_scale,
             set_hud_edit_mode,
             set_theme,
@@ -1128,11 +1231,17 @@ pub fn run() {
                     } else {
                         None
                     };
-                    let (target_w, target_h) = settings
-                        .hud_size
-                        .or(scaled)
-                        .unwrap_or((400, 300));
-                    let _ = hud.set_size(PhysicalSize::new(target_w, target_h));
+                    // Only override the conf-supplied natural size when we
+                    // have a real value to apply (user override or DPI bump).
+                    // Skipping the call lets tauri.conf's logical 400×300
+                    // stand, so Retina/HiDPI displays keep the OS-scaled
+                    // physical size instead of being shrunken to half by a
+                    // raw `set_size(PhysicalSize::new(400, 300))`.
+                    if let Some((target_w, target_h)) =
+                        settings.hud_size.or(scaled)
+                    {
+                        let _ = hud.set_size(PhysicalSize::new(target_w, target_h));
+                    }
                     if scaled.is_some() {
                         settings.hud_size = scaled;
                         // Sync to disk now — the writer is spawned a few lines
