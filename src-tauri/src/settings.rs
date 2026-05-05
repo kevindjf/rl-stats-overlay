@@ -82,6 +82,32 @@ pub struct Settings {
     /// Defaults to true so the badge is discoverable on first launch.
     #[serde(default = "default_launcher_enabled")]
     pub launcher_enabled: bool,
+    /// Master toggle for the post-match analytics feature. When false, the
+    /// recorder never runs, no rows are written to matches.db, the HUD popup
+    /// stays hidden and the analytics tabs are masked. Existing history is
+    /// preserved — only future matches stop being recorded.
+    #[serde(default = "default_true")]
+    pub analytics_enabled: bool,
+    /// When true, the dedicated "post-match" Tauri window pops up at MatchEnded
+    /// and stays visible until the next match starts. Independent from the
+    /// existing W/L HUD.
+    #[serde(default = "default_true")]
+    pub show_post_match_hud: bool,
+    /// When false, the `/overlays/post-match-hud.html` HTTP endpoint serves a
+    /// blank page so a streamer who keeps it as a permanent OBS browser source
+    /// can mute it without removing it.
+    #[serde(default = "default_true")]
+    pub show_post_match_obs: bool,
+    /// Last match guid that was successfully recorded. Used to redisplay the
+    /// post-match HUD after an app restart that happened between two matches.
+    #[serde(default)]
+    pub last_match_recorded_guid: Option<String>,
+    /// Position of the post-match HUD window, in physical pixels.
+    #[serde(default)]
+    pub post_match_hud_pos: Option<(i32, i32)>,
+    /// Size of the post-match HUD window, in physical pixels.
+    #[serde(default)]
+    pub post_match_hud_size: Option<(u32, u32)>,
 }
 
 fn default_team_sizes() -> Vec<u8> {
@@ -97,6 +123,10 @@ fn default_language() -> String {
 }
 
 fn default_launcher_enabled() -> bool {
+    true
+}
+
+fn default_true() -> bool {
     true
 }
 

@@ -308,6 +308,7 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
         }
         "MatchInitialized" | "MatchCreated" => {
             reset_match_stats(app, state);
+            begin_recorder(state, &data);
             // Mark the match window — drives the launcher's auto-hide and
             // the Settings auto-hide-on-match-start. Only emit on transition
             // so a sequence of MatchInitialized/MatchCreated doesn't flap UI.
@@ -317,18 +318,70 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
             let _ = app.emit("rlstats://match-started", ());
         }
         "MatchDestroyed" => {
+            // Defensive: if MatchEnded never fired (RL crash mid-match), the
+            // recorder never finalized. Discard whatever's in progress so we
+            // don't carry it into the next match.
+            *state.recorder.lock() = None;
             reset_match_stats(app, state);
-            // Defensive: if MatchEnded never fired (RL crash mid-match), clear
-            // here so we don't get stuck with the launcher hidden forever.
             if state.match_in_progress.swap(false, Ordering::SeqCst) {
                 let _ = app.emit("rlstats://match-in-progress", false);
             }
         }
         "GoalScored" => {
+            // Persist into the in-progress match before forwarding the event.
+            if let Some(rec) = state.recorder.lock().as_mut() {
+                let seconds_left = rec.last_seconds_remaining;
+                rec.note_goal(&data, seconds_left);
+            }
             let _ = app.emit("rlstats://goal-scored", data);
+        }
+        "BallHit" => {
+            if let Some(rec) = state.recorder.lock().as_mut() {
+                if let Some(team) = data
+                    .get("Players")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|p| p.get("TeamNum"))
+                    .and_then(|v| v.as_i64())
+                {
+                    if (0..=1).contains(&team) {
+                        rec.note_ball_hit(team as u8);
+                    }
+                }
+            }
+        }
+        "CrossbarHit" => {
+            if let Some(rec) = state.recorder.lock().as_mut() {
+                rec.note_crossbar();
+            }
+        }
+        "StatfeedEvent" => {
+            if let Some(rec) = state.recorder.lock().as_mut() {
+                rec.note_statfeed(&data);
+            }
         }
         _ => {}
     }
+}
+
+/// Initialize the in-progress match accumulator. The local team isn't always
+/// known from the very first MatchInitialized payload (no UpdateState yet),
+/// so it's filled in lazily as ticks arrive — see `ingest_update_state`.
+fn begin_recorder(state: &Arc<AppState>, data: &serde_json::Value) {
+    let storage_present = state.storage.get().is_some();
+    if !storage_present {
+        return;
+    }
+    let guid = data
+        .get("MatchGuid")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let local_pid = state.settings.lock().primary_id.clone();
+    *state.recorder.lock() = Some(crate::match_recorder::InProgressMatch::begin(
+        guid,
+        local_pid,
+    ));
 }
 
 /// Wipe per-match stats between matches so a stale Goals/Saves count doesn't
@@ -349,6 +402,26 @@ fn on_update_state(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Va
         None => return,
     };
 
+    // Lazy-start the recorder: in some flows (mock or RL relaunching mid-match)
+    // we get UpdateState before MatchInitialized. Spin it up on first sight so
+    // we don't lose the early ticks of a match.
+    {
+        let mut rec_guard = state.recorder.lock();
+        if rec_guard.is_none() && state.storage.get().is_some() {
+            let guid = data
+                .get("MatchGuid")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if !guid.is_empty() {
+                let local_pid = state.settings.lock().primary_id.clone();
+                *rec_guard = Some(crate::match_recorder::InProgressMatch::begin(
+                    guid, local_pid,
+                ));
+            }
+        }
+    }
+
     // Cache the current match team size (max players-per-team) so MatchEnded
     // can decide whether to count this match given the user's filter. We
     // refresh this on every UpdateState so it survives an app boot mid-match.
@@ -357,6 +430,20 @@ fn on_update_state(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Va
         state
             .current_team_size
             .store(team_size, Ordering::Relaxed);
+    }
+
+    // Feed the recorder with the latest tick. Local team is known from
+    // `state.local_team` once we've identified ourselves below; pass it
+    // through so the aggregators can flag is_local_team correctly.
+    {
+        let local_team_u8 = state
+            .local_team
+            .lock()
+            .as_ref()
+            .and_then(|t| u8::try_from(*t).ok());
+        if let Some(rec) = state.recorder.lock().as_mut() {
+            rec.ingest_update_state(players, data.get("Game"), local_team_u8);
+        }
     }
 
     // Decode the full match stats (per-player + per-team) and store them.
@@ -512,6 +599,44 @@ fn on_match_ended(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Val
     state.request_save_settings();
 
     let _ = app.emit("rlstats://session-changed", ());
+
+    // Finalize and persist the recorder, if any. Done after the W/L tally so
+    // a slow DB write never blocks the existing flow.
+    let recorder = state.recorder.lock().take();
+    if let (Some(mut rec), Some(storage)) = (recorder, state.storage.get().cloned()) {
+        // Backfill the local team in case UpdateState fired with the team
+        // info but the recorder was started before that (cold-start race).
+        rec.local_team_num = team as u8;
+        // Backfill primary_id: the recorder is created on MatchCreated, but
+        // PrimaryId is only captured from the first UpdateState (auto-learn).
+        // Without this, the very first match of a fresh install would be
+        // recorded with an empty primary_id and rejected by the FK constraint.
+        if rec.local_primary_id.is_empty() {
+            rec.local_primary_id = state.settings.lock().primary_id.clone();
+        }
+        if rec.local_primary_id.is_empty() {
+            warn!("primary_id still unknown at MatchEnded — skipping persistence");
+            return;
+        }
+        let record = rec.finalize(Some(winner as u8));
+        let guid_for_event = record.match_guid.clone();
+        let app_clone = app.clone();
+        // Run the write off the WS read task to avoid stalling on disk I/O.
+        tauri::async_runtime::spawn(async move {
+            let result = tauri::async_runtime::spawn_blocking(move || {
+                storage.record_match(&record)
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => {
+                    let _ = app_clone.emit("rlstats://match-recorded", &guid_for_event);
+                }
+                Ok(Err(err)) => warn!(?err, "failed to persist match record"),
+                Err(err) => warn!(?err, "spawn_blocking failed for record_match"),
+            }
+        });
+    }
+
     // The match is over — wipe per-match stats so the next match starts clean.
     reset_match_stats(app, state);
 }

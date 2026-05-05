@@ -7,7 +7,10 @@ use std::sync::{
 };
 use tauri::AppHandle;
 
-use crate::{session::Session, settings::Settings, settings_writer::SettingsWriter};
+use crate::{
+    match_recorder::InProgressMatch, session::Session, settings::Settings,
+    settings_writer::SettingsWriter, storage::Storage,
+};
 
 /// Per-player stats decoded from each `UpdateState` tick. Mirrors the official
 /// fields documented in `docs/stats-api-reference.md` (Players[]). Missing
@@ -98,6 +101,12 @@ pub struct AppState {
     /// the X. Used to suppress the auto-hide-on-match-start when the window
     /// was already invisible.
     pub user_wants_settings_open: AtomicBool,
+    /// SQLite-backed match history. Set once at boot. `OnceCell` keeps
+    /// `AppState::new` callable before the DB is opened (boot is sequential).
+    pub storage: OnceCell<Arc<Storage>>,
+    /// In-flight match accumulator; `Some` between MatchInitialized/MatchCreated
+    /// and the next MatchEnded/MatchDestroyed. Reset between matches.
+    pub recorder: Mutex<Option<InProgressMatch>>,
 }
 
 impl AppState {
@@ -119,6 +128,8 @@ impl AppState {
             no_auto_install: AtomicBool::new(false),
             match_in_progress: AtomicBool::new(false),
             user_wants_settings_open: AtomicBool::new(false),
+            storage: OnceCell::new(),
+            recorder: Mutex::new(None),
         })
     }
 

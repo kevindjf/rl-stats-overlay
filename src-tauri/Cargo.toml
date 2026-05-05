@@ -43,6 +43,8 @@ dirs = "5"
 rust-ini = "0.21"
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }
 mime_guess = "2"
+# SQLite for match history. `bundled` ships our own SQLite — no system dep.
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 # Concurrency
 parking_lot = "0.12"
@@ -75,6 +77,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_System_Diagnostics_ToolHelp",
 ] }
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 opt-level = "s"

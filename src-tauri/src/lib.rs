@@ -16,12 +16,14 @@ use tracing::{info, warn};
 
 mod http_server;
 mod ini_patcher;
+mod match_recorder;
 mod platform_detect;
 mod rl_process;
 mod session;
 mod settings;
 mod settings_writer;
 mod state;
+mod storage;
 mod theme_manifest;
 mod ws_client;
 
@@ -118,6 +120,12 @@ struct StateSnapshot {
     /// dashboard uses this to grey out controls that are pointless mid-match
     /// and to mirror the launcher's hidden state.
     match_in_progress: bool,
+    /// Master analytics toggle — when off, no match is recorded.
+    analytics_enabled: bool,
+    /// Whether the dedicated post-match HUD window pops up at MatchEnded.
+    show_post_match_hud: bool,
+    /// Whether the OBS browser source endpoint serves the full HUD page.
+    show_post_match_obs: bool,
 }
 
 #[tauri::command]
@@ -133,6 +141,9 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
     let theme = settings.theme.clone();
     let theme_vars = settings.current_theme_vars();
     let launcher_enabled = settings.launcher_enabled;
+    let analytics_enabled = settings.analytics_enabled;
+    let show_post_match_hud = settings.show_post_match_hud;
+    let show_post_match_obs = settings.show_post_match_obs;
 
     // Pull HUD geometry live from the OS window first (it reflects manual
     // drags), and fall back to the persisted values if the window does not
@@ -186,6 +197,9 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
         no_auto_install: state.no_auto_install.load(Ordering::SeqCst),
         launcher_enabled,
         match_in_progress: state.match_in_progress.load(Ordering::SeqCst),
+        analytics_enabled,
+        show_post_match_hud,
+        show_post_match_obs,
     }
 }
 
@@ -266,6 +280,175 @@ fn set_session_full(
     let _ = app.emit("rlstats://session-changed", ());
     Ok(())
 }
+
+// ---------- Analytics commands (Phase 1.b) ----------------------------------
+
+/// Resolve the profile id we should query: explicit value if provided, else
+/// the active profile from settings.
+fn effective_primary_id(
+    state: &State<'_, Arc<AppState>>,
+    explicit: Option<String>,
+) -> Result<String, String> {
+    if let Some(p) = explicit.filter(|s| !s.is_empty()) {
+        return Ok(p);
+    }
+    let pid = state.settings.lock().primary_id.clone();
+    if pid.is_empty() {
+        return Err("no active profile yet — play one match to capture it".into());
+    }
+    Ok(pid)
+}
+
+#[tauri::command]
+fn get_recent_matches(
+    primary_id: Option<String>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<storage::MatchSummary>, String> {
+    let storage = state.storage.get().ok_or("storage not initialized")?;
+    let pid = effective_primary_id(&state, primary_id)?;
+    storage
+        .recent_matches(&pid, limit.unwrap_or(50), offset.unwrap_or(0))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_match_detail(
+    match_guid: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Option<storage::MatchDetail>, String> {
+    let storage = state.storage.get().ok_or("storage not initialized")?;
+    storage.match_detail(&match_guid).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_session_aggregate(
+    primary_id: Option<String>,
+    state: State<'_, Arc<AppState>>,
+) -> Result<storage::AggregateStats, String> {
+    let storage = state.storage.get().ok_or("storage not initialized")?;
+    let pid = effective_primary_id(&state, primary_id)?;
+    let session_id = storage
+        .current_session_id(&pid)
+        .map_err(|e| e.to_string())?;
+    storage
+        .aggregate(&pid, Some(session_id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_lifetime_aggregate(
+    primary_id: Option<String>,
+    state: State<'_, Arc<AppState>>,
+) -> Result<storage::AggregateStats, String> {
+    let storage = state.storage.get().ok_or("storage not initialized")?;
+    let pid = effective_primary_id(&state, primary_id)?;
+    storage.aggregate(&pid, None).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_profiles(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<storage::ProfileInfo>, String> {
+    let storage = state.storage.get().ok_or("storage not initialized")?;
+    storage.list_profiles().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn start_new_session(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> Result<i64, String> {
+    let storage = state.storage.get().ok_or("storage not initialized")?;
+    let pid = effective_primary_id(&state, None)?;
+    let new_id = storage
+        .start_new_session(&pid, "manual")
+        .map_err(|e| e.to_string())?;
+    // Also reset the in-memory wins/losses/streak counters that drive the
+    // legacy HUD — keeps both views consistent for the user.
+    {
+        let mut session = state.session.lock();
+        session.reset();
+        let snapshot = session.clone();
+        let mut settings = state.settings.lock();
+        settings.session = snapshot;
+    }
+    state.request_save_settings();
+    let _ = app.emit("rlstats://session-changed", ());
+    Ok(new_id)
+}
+
+#[tauri::command]
+fn delete_match(
+    match_guid: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let storage = state.storage.get().ok_or("storage not initialized")?;
+    storage.delete_match(&match_guid).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_analytics_enabled(
+    app: AppHandle,
+    enabled: bool,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    state.settings.lock().analytics_enabled = enabled;
+    state.request_save_settings();
+    if !enabled {
+        // Discard any in-progress recorder + hide post-match HUD.
+        *state.recorder.lock() = None;
+        if let Some(win) = app.get_webview_window("post_match_hud") {
+            let _ = win.hide();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_show_post_match_hud(
+    app: AppHandle,
+    enabled: bool,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    state.settings.lock().show_post_match_hud = enabled;
+    state.request_save_settings();
+    if !enabled {
+        if let Some(win) = app.get_webview_window("post_match_hud") {
+            let _ = win.hide();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_show_post_match_obs(
+    enabled: bool,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    state.settings.lock().show_post_match_obs = enabled;
+    state.request_save_settings();
+    Ok(())
+}
+
+#[tauri::command]
+fn open_data_folder(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    let dir = settings::settings_dir().map_err(|e| e.to_string())?;
+    if let Some(app) = state.app_handle.get() {
+        use tauri_plugin_shell::ShellExt;
+        let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn clear_history(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    let storage = state.storage.get().ok_or("storage not initialized")?;
+    storage.clear_all().map_err(|e| e.to_string())
+}
+
+// ---------- end of analytics commands --------------------------------------
 
 #[tauri::command]
 fn detect_rocket_league() -> Vec<DetectedInstall> {
@@ -1144,6 +1327,18 @@ pub fn run() {
         "local platform candidates detected"
     );
     let app_state = AppState::new(loaded, candidates);
+    // Open the SQLite-backed match history. Failure is non-fatal — the app
+    // still works without analytics, but new matches won't be persisted.
+    match settings::settings_dir() {
+        Ok(dir) => match storage::Storage::open(&dir) {
+            Ok(storage) => {
+                let _ = app_state.storage.set(storage);
+                info!("matches.db opened in {}", dir.display());
+            }
+            Err(err) => warn!(?err, "failed to open matches.db — analytics disabled"),
+        },
+        Err(err) => warn!(?err, "could not resolve settings dir for matches.db"),
+    }
     // Apply `--no-auto-install` to shared state so the wizard frontend can
     // read it via `StateSnapshot::no_auto_install`.
     app_state.no_auto_install.store(cli.no_auto_install, Ordering::SeqCst);
@@ -1188,6 +1383,18 @@ pub fn run() {
             set_auto_hide_hud_when_offline,
             set_launcher_enabled,
             open_settings_from_launcher,
+            get_recent_matches,
+            get_match_detail,
+            get_session_aggregate,
+            get_lifetime_aggregate,
+            list_profiles,
+            start_new_session,
+            delete_match,
+            set_analytics_enabled,
+            set_show_post_match_hud,
+            set_show_post_match_obs,
+            open_data_folder,
+            clear_history,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -1342,6 +1549,159 @@ pub fn run() {
                         let _ = show_hud_window(&window, &state_listen);
                     } else {
                         let _ = hide_hud_window(&window);
+                    }
+                });
+            }
+
+            // Post-match HUD window — react to `rlstats://match-recorded`
+            // (emitted by ws_client.rs after the recorder commits the match
+            // to SQLite) to show the dedicated `post_match_hud` window. Hides
+            // again on `rlstats://match-started` (next match countdown) so
+            // there's no auto-timer — visibility tracks match lifecycle.
+            {
+                let handle_listen = handle.clone();
+                let state_listen = app_state.clone();
+                handle.listen("rlstats://match-recorded", move |event| {
+                    let s = state_listen.settings.lock();
+                    let enabled = s.analytics_enabled && s.show_post_match_hud;
+                    drop(s);
+                    if !enabled { return; }
+                    // Persist the guid so the window can repopulate after
+                    // an app restart between two matches.
+                    if let Ok(guid) = serde_json::from_str::<String>(event.payload()) {
+                        let mut s = state_listen.settings.lock();
+                        s.last_match_recorded_guid = Some(guid);
+                        drop(s);
+                        state_listen.request_save_settings();
+                    }
+                    if let Some(win) = handle_listen.get_webview_window("post_match_hud") {
+                        if let Some((x, y)) = state_listen.settings.lock().post_match_hud_pos {
+                            let _ = win.set_position(PhysicalPosition::new(x, y));
+                        }
+                        if let Some((w, h)) = state_listen.settings.lock().post_match_hud_size {
+                            let _ = win.set_size(PhysicalSize::new(w, h));
+                        }
+                        // Cache-bust so the page re-fetches /api/match-summary/latest
+                        // and reflects the freshly committed match.
+                        let _ = win.eval(
+                            "window.location.href = window.location.pathname + '?t=' + Date.now()"
+                        );
+                        let _ = win.show();
+                    }
+                });
+            }
+            {
+                let handle_listen = handle.clone();
+                handle.listen("rlstats://match-started", move |_event| {
+                    if let Some(win) = handle_listen.get_webview_window("post_match_hud") {
+                        let _ = win.hide();
+                    }
+                });
+            }
+            // Create the post-match HUD window programmatically once the
+            // embedded HTTP server is up. We deliberately do NOT declare it
+            // in `tauri.conf.json` because that path tries to fetch the URL
+            // synchronously during boot, before our HTTP server is listening,
+            // which deadlocks the main thread on macOS WKWebView.
+            {
+                let handle_create = handle.clone();
+                let state_create = app_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    // Wait for the HTTP server to bind a port.
+                    for _ in 0..50 {
+                        if state_create.http_port.load(Ordering::SeqCst) != 0 { break; }
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                    let port = state_create.http_port.load(Ordering::SeqCst);
+                    if port == 0 {
+                        warn!("post-match HUD: HTTP server never came up, skipping window");
+                        return;
+                    }
+                    let url = format!(
+                        "http://localhost:{port}/overlays/post-match-hud.html?from=tauri"
+                    );
+                    let url = match tauri::Url::parse(&url) {
+                        Ok(u) => u,
+                        Err(err) => {
+                            warn!(?err, "post-match HUD: invalid URL");
+                            return;
+                        }
+                    };
+                    let (pos, size) = {
+                        let s = state_create.settings.lock();
+                        (s.post_match_hud_pos, s.post_match_hud_size)
+                    };
+                    const DEFAULT_W: f64 = 540.0;
+                    const DEFAULT_H: f64 = 640.0;
+                    let mut builder = WebviewWindowBuilder::new(
+                        &handle_create,
+                        "post_match_hud",
+                        WebviewUrl::External(url),
+                    )
+                    .title("RL Post-Match HUD")
+                    .inner_size(DEFAULT_W, DEFAULT_H)
+                    .min_inner_size(420.0, 480.0)
+                    .transparent(true)
+                    .decorations(false)
+                    .always_on_top(true)
+                    .skip_taskbar(true)
+                    .resizable(true)
+                    .visible(false)
+                    .shadow(false)
+                    .focused(false);
+                    if let Some((w, h)) = size {
+                        builder = builder.inner_size(w as f64, h as f64);
+                    }
+                    let win = match builder.build() {
+                        Ok(w) => w,
+                        Err(err) => {
+                            warn!(?err, "post-match HUD: failed to build window");
+                            return;
+                        }
+                    };
+                    // Initial position: persisted geometry wins, otherwise
+                    // anchor to the right edge of the primary monitor and
+                    // center vertically — matches how a tryhard wants to
+                    // glance at it without it covering the play area.
+                    let initial_phys = pos.or_else(|| {
+                        handle_create.primary_monitor().ok().flatten().map(|m| {
+                            let s = m.size();
+                            let sf = m.scale_factor();
+                            // logical → physical for our default sizes.
+                            let w_phys = (size.map(|(w, _)| w as f64).unwrap_or(DEFAULT_W) * sf) as i32;
+                            let h_phys = (size.map(|(_, h)| h as f64).unwrap_or(DEFAULT_H) * sf) as i32;
+                            let pad_phys = (24.0 * sf) as i32;
+                            let x = (s.width as i32) - w_phys - pad_phys;
+                            let y = ((s.height as i32) - h_phys) / 2;
+                            (x.max(0), y.max(0))
+                        })
+                    });
+                    if let Some((x, y)) = initial_phys {
+                        let _ = win.set_position(PhysicalPosition::new(x, y));
+                    }
+                    // Persist geometry on user drags/resizes.
+                    let state_clone = state_create.clone();
+                    win.on_window_event(move |ev| match ev {
+                        tauri::WindowEvent::Moved(pos) => {
+                            state_clone.settings.lock().post_match_hud_pos = Some((pos.x, pos.y));
+                            state_clone.request_save_settings();
+                        }
+                        tauri::WindowEvent::Resized(size) => {
+                            state_clone.settings.lock().post_match_hud_size =
+                                Some((size.width, size.height));
+                            state_clone.request_save_settings();
+                        }
+                        _ => {}
+                    });
+                    // Cold-boot restore: re-show the window if the previous
+                    // session ended on a recorded match.
+                    let s = state_create.settings.lock();
+                    let should_show = s.analytics_enabled
+                        && s.show_post_match_hud
+                        && s.last_match_recorded_guid.is_some();
+                    drop(s);
+                    if should_show {
+                        let _ = win.show();
                     }
                 });
             }

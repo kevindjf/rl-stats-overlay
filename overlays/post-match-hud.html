@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RL Post-Match HUD</title>
+  <link rel="stylesheet" href="/overlays/post-match-hud.css" />
+</head>
+<body>
+  <main class="post-match-card" id="card">
+    <header class="pm-header">
+      <span class="result-badge" id="result-badge" data-tip="Issue du match — déterminée par MatchEnded.">—</span>
+      <span class="pm-score" id="score" data-tip="Score final : ton équipe — équipe adverse.">0 — 0</span>
+      <span class="pm-meta" id="meta" data-tip="Format · durée écoulée (chrono RL + countdowns + replays + podium, donc plus longue que la durée gameplay) · arène.">—</span>
+      <button id="btn-close" class="pm-close" data-tip="Fermer le récap. Il réapparaîtra à la fin du prochain match." aria-label="Fermer">×</button>
+    </header>
+
+    <section class="pm-section pm-core">
+      <div class="pm-core-grid" id="core-stats">
+        <span data-tip="Buts marqués pendant ce match.">
+          <span class="lbl">Buts</span><span class="val" id="goals">0</span>
+        </span>
+        <span data-tip="Tirs cadrés (qui auraient été des buts sans intervention adverse). Inclut les buts.">
+          <span class="lbl">Tirs</span><span class="val" id="shots">0</span>
+        </span>
+        <span data-tip="Arrêts effectués : interventions sur un tir adverse cadré vers ton but.">
+          <span class="lbl">Arrêts</span><span class="val" id="saves">0</span>
+        </span>
+        <span data-tip="Passes décisives : dernière touche d'un coéquipier avant ton but.">
+          <span class="lbl">Passes déc.</span><span class="val" id="assists">0</span>
+        </span>
+        <span data-tip="Démolitions infligées : nombre de fois où tu as détruit un adversaire en supersonique.">
+          <span class="lbl">Démos infligées</span><span class="val" id="demos">0</span>
+        </span>
+        <span data-tip="Démolitions subies : nombre de fois où un adversaire t'a détruit ce match.">
+          <span class="lbl">Démos subies</span><span class="val" id="demos-taken">—</span>
+        </span>
+        <span data-tip="Score total RL : combine buts, arrêts, passes, démos, sauvetages d'épopée, etc. Référence rapide pour comparer ta perf entre matchs.">
+          <span class="lbl">Score</span><span class="val" id="score-pts">0</span>
+        </span>
+      </div>
+    </section>
+
+    <section class="pm-section pm-boost">
+      <h3 data-tip="Indicateurs de qualité de ton boost management — la métrique #1 que les joueurs sérieux travaillent.">Boost management</h3>
+      <div class="pm-row">
+        <span data-tip="Moyenne de ton réservoir de boost (sur 100) tout au long du match. 50 ≈ équilibré, &lt;40 tu manques souvent, &gt;65 tu sur-collectes.">
+          <span class="lbl">Boost moyen</span><span class="val" id="avg-boost">—</span>
+        </span>
+        <span data-tip="% du match où tu maintenais le bouton boost. À comparer à ta BPM : haut % + BPM faible = tu actionnes le boost mais sans en consommer (réservoir vide).">
+          <span class="lbl">% temps boost</span><span class="val" id="boosting-pct">—</span>
+        </span>
+        <span data-tip="Boost consommé par minute. Indicateur d'agressivité de mouvement. Joueurs SSL : 350-450 BPM. Approximé depuis l'API live via les décréments du compteur Boost — sous-estime de quelques % quand tu boostes pendant un pickup (ramassage masque la consommation). Marge d'erreur typique ~5-10 % vs replay.">
+          <span class="lbl">BPM <abbr>ⓘ</abbr></span><span class="val" id="bpm">—</span>
+        </span>
+      </div>
+      <div class="pm-row pm-row-2">
+        <span data-tip="Secondes passées avec le réservoir VIDE. Critique : à 0 boost tu es sur-jouable. Objectif : minimiser, surtout à des moments clés.">
+          <span class="lbl">Temps à 0 boost</span><span class="val warn" id="time-zero">—</span>
+        </span>
+        <span data-tip="Secondes passées avec le réservoir PLEIN. Au-delà de ~10 s, signe que tu sur-collectes au lieu d'utiliser ton boost — tu rates des opportunités d'aérien ou de mouvement rapide.">
+          <span class="lbl">Temps à 100 boost</span><span class="val warn" id="time-full">—</span>
+        </span>
+      </div>
+      <div class="pm-hist" id="hist-boost" data-tip="Distribution du temps passé dans chaque tranche de réservoir. Idéal : minimiser 0-25 (manque) et 75-100 (gaspillage), maximiser 25-75 (zone de confort tactique).">
+        <h4>Distribution du boost</h4>
+      </div>
+    </section>
+
+    <section class="pm-section pm-move">
+      <h3 data-tip="Indicateurs de mobilité et d'agressivité de mouvement.">Mouvement</h3>
+      <div class="pm-row">
+        <span data-tip="% de la vitesse maximale (2300 UU/s = 100 %) moyennée sur tout le match. SSL ≈ 65-72 %. Plus haut = plus mobile.">
+          <span class="lbl">Vitesse moyenne</span><span class="val" id="speed-avg">—</span>
+        </span>
+        <span data-tip="Distance totale parcourue par ta voiture pendant le match (1 km ≈ 100 000 Unreal Units, l'unité de mesure interne du jeu). Donne une idée brute de ton activité physique sur le terrain. Approximé via intégration de la vitesse à 20 Hz (~2-3 % d'erreur).">
+          <span class="lbl">Distance <abbr>ⓘ</abbr></span><span class="val" id="dist">—</span>
+        </span>
+      </div>
+      <div class="pm-hist" id="hist-speed" data-tip="Distribution du temps passé dans chaque tranche de vitesse. Beaucoup de Lent = positionnement attentiste ; beaucoup de Supersonique = jeu rapide.">
+        <h4>Distribution de la vitesse</h4>
+      </div>
+      <div class="pm-hist" id="hist-air" data-tip="Répartition du temps au sol, en l'air et au mur. Plus d'aérien = jeu vertical ; plus de mur = jeu de mur, dribbling vertical.">
+        <h4>Sol vs aérien</h4>
+      </div>
+      <div class="pm-row pm-row-2">
+        <span data-tip="Nombre de fois où tu as déclenché un powerslide (frein à main). Indicateur de contrôle au sol et de half-flips.">
+          <span class="lbl">Powerslides</span><span class="val" id="ps-count">—</span>
+        </span>
+        <span data-tip="Durée cumulée de tous tes powerslides. Combinée au compteur, elle donne la durée moyenne par slide. Trop long = tu glisses trop, perds en vitesse.">
+          <span class="lbl">Durée totale powerslide</span><span class="val" id="ps-tot">—</span>
+        </span>
+      </div>
+    </section>
+
+    <p id="no-spectator" class="pm-warn hidden">
+      Stats avancées indisponibles pour ce match (joueur local non identifié).
+    </p>
+  </main>
+
+  <p id="empty-state" class="empty-state hidden">
+    En attente du prochain match…
+  </p>
+
+  <script type="module" src="/overlays/post-match-hud.js"></script>
+</body>
+</html>

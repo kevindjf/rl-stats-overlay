@@ -7,6 +7,7 @@ import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 
 import { type LangPref, setLanguage, t } from "./i18n";
 import { runWizard } from "./wizard";
+import * as analytics from "./analytics";
 
 // ----- Types ----------------------------------------------------------------
 
@@ -67,6 +68,9 @@ interface StateSnapshot {
   no_auto_install: boolean;
   launcher_enabled: boolean;
   match_in_progress: boolean;
+  analytics_enabled: boolean;
+  show_post_match_hud: boolean;
+  show_post_match_obs: boolean;
 }
 
 // ----- Theme schema ---------------------------------------------------------
@@ -205,6 +209,33 @@ let currentState: StateSnapshot | null = null;
 // calls. Reset to false after Save / Cancel.
 let isEditingSession = false;
 
+// ----- Top-level tabs ------------------------------------------------------
+type TopTab = "settings" | "history" | "session" | "alltime";
+
+/// Feature flag: the History / Session / All-time analytics views are
+/// fully implemented end-to-end (capture, storage, queries, UI) but
+/// hidden in the v1 release so we ship a focused product around the
+/// post-match HUD first. Flip to `true` for the v2 release that exposes
+/// the analytics tabs. Backend keeps recording matches in either mode.
+const FEATURE_ANALYTICS_TABS = false;
+
+function readTopTab(): TopTab {
+  if (!FEATURE_ANALYTICS_TABS) return "settings";
+  try {
+    const v = localStorage.getItem("topTab");
+    if (v === "settings" || v === "history" || v === "session" || v === "alltime") return v;
+  } catch (_) { /* ignore */ }
+  return "settings";
+}
+function writeTopTab(v: TopTab) {
+  try { localStorage.setItem("topTab", v); } catch (_) { /* ignore */ }
+}
+let activeTopTab: TopTab = readTopTab();
+// Sync analytics' internal tab when starting in an analytics view.
+if (FEATURE_ANALYTICS_TABS && activeTopTab !== "settings") {
+  analytics.setActiveTab(activeTopTab);
+}
+
 // ----- Collapsible panels ---------------------------------------------------
 
 /// Lookup whether a collapsible panel was last left open. We use the native
@@ -338,11 +369,18 @@ listen<MatchStats>("rlstats://match-stats", (event) => {
   if (currentState) {
     currentState.match_stats = event.payload;
   }
+  // The match_stats live block only exists on the Réglages tab. Re-rendering
+  // any other tab on every tick destroys the user's open <details> sections
+  // (statfeed, possession, etc.) — skip those entirely.
+  if (activeTopTab !== "settings") return;
   refresh().catch(() => {});
 });
 
 // Re-poll every second so the connected dot stays accurate even if events drop.
 setInterval(() => {
+  // Same reason: don't re-render the analytics tabs on the heartbeat — the
+  // `connected` indicator is only shown on Réglages anyway.
+  if (activeTopTab !== "settings") return;
   refresh().catch(() => {});
 }, 2000);
 
@@ -410,6 +448,11 @@ function mountUpdateBanner(version: string, onInstall: () => Promise<void>): voi
 
 function renderDashboard() {
   if (!currentState) return;
+
+  if (activeTopTab !== "settings") {
+    renderAnalyticsTab().catch((err) => console.error("renderAnalyticsTab failed", err));
+    return;
+  }
   const s = currentState;
 
   const obsUrl = s.overlay_url || "starting…";
@@ -425,6 +468,8 @@ function renderDashboard() {
           s.connected ? t("header.connected") : t("header.waiting")
         }</span>
       </header>
+
+      ${renderTopTabsBar()}
 
       ${renderPanel("session", t("session.title"), /* html */ `
         <div class="session">
@@ -595,6 +640,8 @@ function renderDashboard() {
           : `<code class="info-code">localhost:${s.http_port}</code>`,
       })}
 
+      ${renderAnalyticsSettingsPanel(s)}
+
       ${renderThemeSection(s)}
 
       <footer>
@@ -699,7 +746,113 @@ function renderDashboard() {
   bindHudSnapListeners();
   bindHudScale();
   bindThemeListeners();
+  bindAnalyticsSettings();
   bindPanelCollapse();
+  bindTopTabs();
+}
+
+function bindAnalyticsSettings() {
+  document.getElementById("pm-analytics-enabled")?.addEventListener("change", async (e) => {
+    const enabled = (e.target as HTMLInputElement).checked;
+    if (!enabled) {
+      const ok = confirm(t("postMatch.disableConfirm"));
+      if (!ok) {
+        (e.target as HTMLInputElement).checked = true;
+        return;
+      }
+    }
+    await invoke("set_analytics_enabled", { enabled });
+    await refresh();
+  });
+  document.getElementById("pm-show-hud")?.addEventListener("change", async (e) => {
+    const enabled = (e.target as HTMLInputElement).checked;
+    await invoke("set_show_post_match_hud", { enabled });
+  });
+  document.getElementById("pm-show-obs")?.addEventListener("change", async (e) => {
+    const enabled = (e.target as HTMLInputElement).checked;
+    await invoke("set_show_post_match_obs", { enabled });
+  });
+  document.getElementById("pm-open-folder")?.addEventListener("click", () => {
+    invoke("open_data_folder").catch((err) => console.error(err));
+  });
+  document.getElementById("pm-clear-history")?.addEventListener("click", async () => {
+    if (!confirm(t("postMatch.clearConfirm"))) return;
+    await invoke("clear_history").catch((err) => alert(err));
+    await refresh();
+  });
+}
+
+// ----- Top tabs bar + analytics tab routing -------------------------------
+
+function renderTopTabsBar(): string {
+  // v1 ships with only the post-match HUD surface; analytics tabs stay
+  // hidden behind the feature flag (code is wired and ready for v2).
+  if (!FEATURE_ANALYTICS_TABS) return "";
+  const tab = (id: TopTab, label: string) =>
+    `<button class="top-tab ${activeTopTab === id ? "active" : ""}" data-top-tab="${id}">${label}</button>`;
+  return /* html */ `
+    <nav class="top-tabs" role="tablist">
+      ${tab("settings", t("topTabs.settings"))}
+      ${tab("history", t("topTabs.history"))}
+      ${tab("session", t("topTabs.session"))}
+      ${tab("alltime", t("topTabs.alltime"))}
+    </nav>
+  `;
+}
+
+function bindTopTabs() {
+  document.querySelectorAll<HTMLButtonElement>("button.top-tab[data-top-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const v = btn.dataset.topTab as TopTab | undefined;
+      if (!v || v === activeTopTab) return;
+      activeTopTab = v;
+      writeTopTab(v);
+      if (v !== "settings") analytics.setActiveTab(v);
+      renderDashboard();
+    });
+  });
+}
+
+async function renderAnalyticsTab() {
+  if (!currentState) return;
+  const s = currentState;
+  const profileSelectorHtml = await analytics.renderProfileSelector(s.primary_id || "");
+  const tabBody = await analytics.renderActiveTab();
+
+  root.innerHTML = /* html */ `
+    <main>
+      <header style="display:flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px;">
+        <div>
+          <h1>🎮 RL Stats Overlay</h1>
+          <p class="subtitle">${t("header.subtitle")}</p>
+        </div>
+        <span class="badge"><span class="dot ${s.connected ? "ok" : ""}" id="conn-dot"></span>${
+          s.connected ? t("header.connected") : t("header.waiting")
+        }</span>
+      </header>
+
+      ${renderTopTabsBar()}
+
+      <div class="analytics-toolbar">
+        ${profileSelectorHtml}
+      </div>
+
+      <div class="analytics-body">
+        ${tabBody}
+      </div>
+    </main>
+  `;
+
+  bindTopTabs();
+  analytics.bindProfileSelector(() => renderDashboard());
+  analytics.bindHistoryList(() => renderDashboard());
+  analytics.bindMatchDetail(() => renderDashboard());
+  analytics.bindAggregateView(() => renderDashboard());
+  analytics.bindAnalyticsPanelToggles();
+  // Re-render whenever the backend writes a new match.
+  analytics.ensureMatchRecordedListener(() => {
+    if (activeTopTab !== "settings") renderDashboard();
+  });
 }
 
 // ----- Per-match stats block -----------------------------------------------
@@ -911,6 +1064,52 @@ function bindGeomListeners() {
 }
 
 // ----- Theme section --------------------------------------------------------
+
+function renderAnalyticsSettingsPanel(s: StateSnapshot): string {
+  const obsUrl = s.http_port === 0
+    ? "starting…"
+    : `http://localhost:${s.http_port}/overlays/post-match-hud.html`;
+  return renderPanel("analytics-settings", t("postMatch.title"), /* html */ `
+    <p class="muted" style="margin-top: 0;">${t("postMatch.intro")}</p>
+
+    <div class="row" style="margin-top: 12px;">
+      <label style="display:flex; align-items:flex-start; gap:8px; font-size: 13px;">
+        <input type="checkbox" id="pm-analytics-enabled" ${s.analytics_enabled ? "checked" : ""} />
+        <span>
+          <strong>${t("postMatch.enable")}</strong>
+          <p class="muted" style="margin: 4px 0 0; font-size: 11px;">${t("postMatch.enableHint")}</p>
+          <p class="muted" style="margin: 4px 0 0; font-size: 11px; color: var(--warn);">${t("postMatch.enableWarn")}</p>
+        </span>
+      </label>
+    </div>
+
+    <div class="row" style="margin-top: 14px;">
+      <label style="display:flex; align-items:flex-start; gap:8px; font-size: 13px;" ${s.analytics_enabled ? "" : 'class="dim"'}>
+        <input type="checkbox" id="pm-show-hud" ${s.show_post_match_hud ? "checked" : ""} ${s.analytics_enabled ? "" : "disabled"} />
+        <span>
+          <strong>${t("postMatch.showHud")}</strong>
+          <p class="muted" style="margin: 4px 0 0; font-size: 11px;">${t("postMatch.showHudHint")}</p>
+        </span>
+      </label>
+    </div>
+
+    <div class="row" style="margin-top: 14px;">
+      <label style="display:flex; align-items:flex-start; gap:8px; font-size: 13px;">
+        <input type="checkbox" id="pm-show-obs" ${s.show_post_match_obs ? "checked" : ""} ${s.analytics_enabled ? "" : "disabled"} />
+        <span>
+          <strong>${t("postMatch.showObs")}</strong>
+          <p class="muted" style="margin: 4px 0 0; font-size: 11px;">${t("postMatch.showObsHint")}</p>
+          <div class="url-pill" style="margin-top: 6px;">${escapeHtml(obsUrl)}</div>
+        </span>
+      </label>
+    </div>
+
+    <div class="row" style="margin-top: 18px; gap: 10px;">
+      <button class="ghost" id="pm-open-folder">${t("postMatch.openFolder")}</button>
+      <button class="ghost danger" id="pm-clear-history">${t("postMatch.clearHistory")}</button>
+    </div>
+  `);
+}
 
 function renderThemeSection(s: StateSnapshot): string {
   const def = themeById(s.theme) ?? THEMES[0];

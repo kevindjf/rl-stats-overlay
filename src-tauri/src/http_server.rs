@@ -40,6 +40,17 @@ pub async fn start(state: Arc<AppState>) -> Result<()> {
         .route("/", get(root))
         .route("/api/config", get(api_config))
         .route("/api/state", get(api_state))
+        // Analytics — match summaries + aggregates. Used by the post-match
+        // HUD page (Tauri window + OBS browser source) and any external tool.
+        .route("/api/match-summary/latest", get(api_match_summary_latest))
+        .route("/api/match-summary/:guid", get(api_match_summary_guid))
+        .route("/api/session-summary", get(api_session_summary))
+        .route("/api/lifetime-summary", get(api_lifetime_summary))
+        // Post-match HUD page (overrides /overlays/* to respect the OBS
+        // toggle — when disabled the endpoint returns a blank page so a
+        // streamer keeping it as a permanent browser source can mute it
+        // without removing the source).
+        .route("/overlays/post-match-hud.html", get(serve_post_match_hud_page))
         // Stable URL: resolves the active theme on the fly. This is the URL
         // users put in OBS so they don't have to update it when switching
         // themes from the settings window.
@@ -54,6 +65,7 @@ pub async fn start(state: Arc<AppState>) -> Result<()> {
         .route("/hud/start-drag", post(hud_start_drag))
         .route("/hud/start-resize", post(hud_start_resize))
         .route("/hud/toggle-lock", post(hud_toggle_lock))
+        .route("/hud/post-match-close", post(post_match_hud_close))
         .route("/session/reset", post(session_reset))
         .route("/app/quit", post(app_quit))
         // Floating launcher badge → settings window. POSTed from the
@@ -281,6 +293,26 @@ async fn hud_toggle_lock(State(state): State<Arc<AppState>>) -> Response {
     Json(serde_json::json!({ "locked": new_locked })).into_response()
 }
 
+/// "X" close button on the post-match HUD page → hide the window. The Rust
+/// listener for `rlstats://match-recorded` will show it again at the next
+/// match end. Also clears `last_match_recorded_guid` so a future cold reboot
+/// doesn't re-show the now-dismissed match.
+async fn post_match_hud_close(State(state): State<Arc<AppState>>) -> Response {
+    let app = match state.app_handle.get() {
+        Some(a) => a,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, "app not ready").into_response(),
+    };
+    if let Some(win) = app.get_webview_window("post_match_hud") {
+        let _ = win.hide();
+    }
+    {
+        let mut s = state.settings.lock();
+        s.last_match_recorded_guid = None;
+    }
+    state.request_save_settings();
+    StatusCode::OK.into_response()
+}
+
 /// Right-click "Reset session" handler. Mirrors the `reset_session` Tauri
 /// command but reachable without `window.__TAURI__` (the HUD's webview is
 /// loaded over plain HTTP, not the tauri:// protocol).
@@ -331,6 +363,105 @@ async fn launcher_open_settings(State(state): State<Arc<AppState>>) -> Response 
         .user_wants_settings_open
         .store(true, std::sync::atomic::Ordering::SeqCst);
     StatusCode::OK.into_response()
+}
+
+// ===== Analytics endpoints =================================================
+
+fn require_storage(state: &Arc<AppState>) -> Result<Arc<crate::storage::Storage>, Response> {
+    if !state.settings.lock().analytics_enabled {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "analytics disabled").into_response());
+    }
+    state
+        .storage
+        .get()
+        .cloned()
+        .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, "storage not ready").into_response())
+}
+
+fn active_primary_id(state: &Arc<AppState>) -> Result<String, Response> {
+    let pid = state.settings.lock().primary_id.clone();
+    if pid.is_empty() {
+        return Err((StatusCode::NO_CONTENT, "no active profile").into_response());
+    }
+    Ok(pid)
+}
+
+async fn api_match_summary_latest(State(state): State<Arc<AppState>>) -> Response {
+    let storage = match require_storage(&state) { Ok(s) => s, Err(r) => return r };
+    let pid = match active_primary_id(&state) { Ok(p) => p, Err(r) => return r };
+    match storage.recent_matches(&pid, 1, 0) {
+        Ok(rows) if rows.is_empty() => StatusCode::NO_CONTENT.into_response(),
+        Ok(rows) => match storage.match_detail(&rows[0].match_guid) {
+            Ok(Some(detail)) => Json(detail).into_response(),
+            Ok(None) => StatusCode::NO_CONTENT.into_response(),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        },
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
+}
+
+async fn api_match_summary_guid(
+    AxumPath(guid): AxumPath<String>,
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    let storage = match require_storage(&state) { Ok(s) => s, Err(r) => return r };
+    match storage.match_detail(&guid) {
+        Ok(Some(detail)) => Json(detail).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
+}
+
+async fn api_session_summary(State(state): State<Arc<AppState>>) -> Response {
+    let storage = match require_storage(&state) { Ok(s) => s, Err(r) => return r };
+    let pid = match active_primary_id(&state) { Ok(p) => p, Err(r) => return r };
+    let session_id = match storage.current_session_id(&pid) {
+        Ok(id) => id,
+        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    };
+    match storage.aggregate(&pid, Some(session_id)) {
+        Ok(agg) => Json(agg).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
+}
+
+async fn api_lifetime_summary(State(state): State<Arc<AppState>>) -> Response {
+    let storage = match require_storage(&state) { Ok(s) => s, Err(r) => return r };
+    let pid = match active_primary_id(&state) { Ok(p) => p, Err(r) => return r };
+    match storage.aggregate(&pid, None) {
+        Ok(agg) => Json(agg).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
+}
+
+/// Serve the post-match HUD page. When the OBS toggle is off, return a blank
+/// transparent page so a permanent browser source goes silent without being
+/// removed. The Tauri window passes `?from=tauri` to bypass the OBS toggle —
+/// the window's own visibility is gated separately by `show_post_match_hud`.
+async fn serve_post_match_hud_page(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let from_tauri = q.get("from").map(|v| v == "tauri").unwrap_or(false);
+    let s = state.settings.lock();
+    if !s.analytics_enabled || (!from_tauri && !s.show_post_match_obs) {
+        // Transparent placeholder so the OBS source goes blank.
+        let body = "<!doctype html><meta charset=\"utf-8\"><title>RL Post-Match HUD</title>\
+                    <style>html,body{margin:0;background:transparent;}</style>";
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "text/html; charset=utf-8".parse().unwrap());
+        headers.insert(header::CACHE_CONTROL, "no-store, must-revalidate".parse().unwrap());
+        return (headers, body).into_response();
+    }
+    drop(s);
+    let bytes = match read_overlay_asset("post-match-hud.html") {
+        Some(b) => b,
+        None => return (StatusCode::NOT_FOUND, "post-match-hud.html missing").into_response(),
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, "text/html; charset=utf-8".parse().unwrap());
+    headers.insert(header::CACHE_CONTROL, "no-store, must-revalidate".parse().unwrap());
+    (headers, bytes).into_response()
 }
 
 async fn serve_overlay(AxumPath(path): AxumPath<String>) -> Response {

@@ -1,0 +1,308 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: #fff;
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+html { height: 100vh; }
+body {
+  height: 100vh;
+  width: 100vw;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.28) transparent;
+}
+body::-webkit-scrollbar { width: 10px; }
+body::-webkit-scrollbar-track { background: transparent; }
+body::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.28);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.45);
+  background-clip: content-box;
+}
+
+.hidden { display: none !important; }
+
+.post-match-card {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 18px 22px 22px;
+  background: rgba(15, 18, 26, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* ===== Sticky header (badge + score + meta + close) ================== */
+.pm-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: -18px -22px 0;
+  padding: 14px 18px 12px 22px;
+  background: rgba(15, 18, 26, 0.97);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+}
+.result-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 1.2px;
+}
+.result-badge.win  { background: rgba(93, 209, 111, 0.22); color: #5dd16f; }
+.result-badge.loss { background: rgba(255, 92, 92, 0.22);  color: #ff5c5c; }
+.pm-score { font-weight: 800; font-size: 24px; font-variant-numeric: tabular-nums; }
+.pm-meta  { margin-left: auto; color: rgba(255,255,255,0.55); font-size: 12px; }
+
+/* ===== Close button ================================================== */
+.pm-close {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s, border-color 0.12s, transform 0.08s;
+}
+.pm-close:hover {
+  background: rgba(255, 92, 92, 0.18);
+  color: #ff8c8c;
+  border-color: rgba(255, 92, 92, 0.35);
+}
+.pm-close:active { transform: scale(0.94); }
+
+/* ===== Sections ====================================================== */
+.pm-section { display: flex; flex-direction: column; gap: 12px; }
+.pm-section h3 {
+  margin: 4px 0 4px;
+  font-size: 11px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #6cb0ff;
+}
+
+/* Core stats grid */
+.pm-core-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+}
+.pm-core-grid > span,
+.pm-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.pm-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.pm-row > span { flex: 1 1 130px; }
+.pm-row.pm-row-2 > span { flex: 1 1 calc(50% - 5px); }
+.pm-row .lbl,
+.pm-core-grid .lbl {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pm-row .val,
+.pm-core-grid .val { font-weight: 700; font-size: 18px; }
+.pm-row .val.warn,
+.pm-core-grid .val.warn { color: #ffb13a; }
+
+/* ===== Histograms ==================================================== */
+.pm-hist {
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.025);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pm-hist h4 {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: rgba(255,255,255,0.55);
+}
+.pm-hist-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 56px;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0;
+  font-size: 11px;
+}
+.pm-hist-row .pm-bar-label { color: rgba(255,255,255,0.7); }
+.pm-hist-row .pm-bar-value { color: #fff; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.pm-bar-track {
+  height: 9px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.pm-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #5dd16f, #2c9b48);
+  border-radius: 999px;
+  transition: width 0.3s ease-out;
+}
+.pm-bar-fill.warn { background: linear-gradient(90deg, #ffb13a, #d68a1a); }
+.pm-bar-fill.danger { background: linear-gradient(90deg, #ff5c5c, #c03d3d); }
+.pm-bar-fill.blue { background: linear-gradient(90deg, #6cb0ff, #3a78d6); }
+
+abbr {
+  text-decoration: none;
+  color: #ffb13a;
+  cursor: help;
+  font-size: 10px;
+}
+
+.pm-warn {
+  margin: 0;
+  padding: 10px;
+  background: rgba(255, 177, 58, 0.1);
+  border: 1px solid rgba(255, 177, 58, 0.3);
+  border-radius: 8px;
+  color: #ffb13a;
+  font-size: 11px;
+  text-align: center;
+}
+
+.empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 13px;
+  background: rgba(15, 18, 26, 0.85);
+  border-radius: 14px;
+}
+
+@keyframes appear {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.post-match-card { animation: appear 280ms cubic-bezier(0.21, 1, 0.21, 1); }
+
+/* ===== Custom tooltips =================================================
+   Native `title` attributes don't render reliably in transparent / no-decor
+   Tauri windows on macOS. We roll our own using `data-tip="..."` so the
+   tooltip is styled for our dark theme and always works.                  */
+[data-tip] {
+  position: relative;
+}
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: #1a1f2c;
+  color: #e8eaee;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.5;
+  width: max-content;
+  max-width: 280px;
+  white-space: pre-wrap;
+  text-align: left;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,255,255,0.1);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.18s, visibility 0.18s, transform 0.18s;
+  z-index: 50;
+}
+[data-tip]::before {
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #1a1f2c;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.18s, visibility 0.18s;
+  z-index: 50;
+}
+[data-tip]:hover::after,
+[data-tip]:hover::before {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0.35s;
+}
+[data-tip]:hover::after {
+  transform: translateX(-50%) translateY(0);
+}
+
+/* When the tooltip would fall off the right edge, anchor right instead. */
+.pm-meta[data-tip]::after,
+.pm-close[data-tip]::after,
+.pm-row > span[data-tip]:last-child::after {
+  left: auto;
+  right: 0;
+  transform: translateX(0) translateY(4px);
+}
+.pm-meta[data-tip]:hover::after,
+.pm-close[data-tip]:hover::after,
+.pm-row > span[data-tip]:last-child:hover::after {
+  transform: translateX(0) translateY(0);
+}
+.pm-meta[data-tip]::before,
+.pm-close[data-tip]::before,
+.pm-row > span[data-tip]:last-child::before {
+  left: auto;
+  right: 12px;
+  transform: translateX(0);
+}

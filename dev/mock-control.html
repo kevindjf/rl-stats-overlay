@@ -163,6 +163,12 @@
         <button class="win"     id="win" disabled>🏆 Finir — Win</button>
         <button class="loss"    id="loss" disabled>💀 Finir — Loss</button>
       </div>
+      <div class="row" style="margin-top: 10px;">
+        <button class="primary" id="scripted">🎬 Match scripté (~30s)</button>
+        <span class="muted" style="font-size: 12px; color: var(--muted);">
+          Joue automatiquement un match complet avec goals, saves, ball hits, demos...
+        </span>
+      </div>
     </div>
 
     <div class="panel">
@@ -174,6 +180,20 @@
         <button data-stat="Assists">🤝 +1 Assist</button>
         <button data-stat="Demos">💥 +1 Demo</button>
         <button class="warn" data-stat="OppGoal">😬 But adverse</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin: 0 0 12px;">Events de match</h3>
+      <div class="stats-grid">
+        <button data-action="ballHit-mine">🏐 BallHit (mon équipe)</button>
+        <button data-action="ballHit-opp">🏐 BallHit (adverse)</button>
+        <button data-action="crossbar-mine">🥅 Crossbar (mon équipe)</button>
+        <button data-action="crossbar-opp">🥅 Crossbar (adverse)</button>
+        <button data-action="statfeed-Save">🛡 Statfeed Save</button>
+        <button data-action="statfeed-EpicSave">⭐ Statfeed Epic Save</button>
+        <button data-action="statfeed-HatTrick">🎩 Statfeed Hat Trick</button>
+        <button class="loss" data-action="demolishMe">💀 Je me fais démo</button>
       </div>
     </div>
 
@@ -242,12 +262,34 @@ $('theme').addEventListener('change', async () => {
 btnStart.addEventListener('click', async () => { await send('startMatch');   refresh(); });
 btnWin  .addEventListener('click', async () => { await send('endMatch', true);  refresh(); });
 btnLoss .addEventListener('click', async () => { await send('endMatch', false); refresh(); });
+$('scripted').addEventListener('click', async () => { await send('scriptedMatch'); refresh(); });
 
 document.querySelectorAll('button[data-stat]').forEach((btn) => {
   btn.addEventListener('click', async () => {
     const stat = btn.dataset.stat;
     if (stat === 'OppGoal') await send('oppGoal');
     else                    await send('addStat', stat, 1);
+    refresh();
+  });
+});
+
+// Mapping pour les actions composites du panneau "Events de match".
+const myTeam = () => parseInt($('team').value, 10) || 0;
+const oppTeam = () => 1 - myTeam();
+const eventActions = {
+  'ballHit-mine':       () => send('ballHit', myTeam()),
+  'ballHit-opp':        () => send('ballHit', oppTeam()),
+  'crossbar-mine':      () => send('crossbar', myTeam()),
+  'crossbar-opp':       () => send('crossbar', oppTeam()),
+  'statfeed-Save':      () => send('statfeed', 'Save', 'Save'),
+  'statfeed-EpicSave':  () => send('statfeed', 'EpicSave', 'Epic Save'),
+  'statfeed-HatTrick':  () => send('statfeed', 'HatTrick', 'Hat Trick'),
+  'demolishMe':         () => send('demolishMe'),
+};
+document.querySelectorAll('button[data-action]').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const fn = eventActions[btn.dataset.action];
+    if (fn) await fn();
     refresh();
   });
 });
