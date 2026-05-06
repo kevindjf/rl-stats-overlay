@@ -64,6 +64,7 @@ const blankSim = (): PlayerSim => ({
 
 const state = {
   myName: "TestPlayer",
+  myPrimaryId: "Mock|1|0",
   myTeam: 0 as 0 | 1,
   matchGuid: "",
   inMatch: false,
@@ -197,7 +198,7 @@ const buildUpdateState = () => {
   const ps = state.playerSim;
   const me: any = {
     Name: state.myName,
-    PrimaryId: "Mock|1|0",
+    PrimaryId: state.myPrimaryId,
     Shortcut: 1,
     TeamNum: state.myTeam,
     Score: state.player.Score,
@@ -283,11 +284,49 @@ const startClock = () => {
   }, 1000);
 };
 
+// Probe the Tauri HTTP server (it scans ports 49124-49133) and align the
+// local player's name + PrimaryId on the real active profile. Without this,
+// the match recorder tags matches against "Mock|1|0" and the post-match HUD
+// stays blank because the active profile sees an empty match history.
+const TAURI_PORT_START = 49124;
+const TAURI_PORT_END = 49133;
+async function syncFromTauri(): Promise<{
+  ok: boolean;
+  port?: number;
+  primaryId?: string;
+  playerName?: string;
+}> {
+  for (let port = TAURI_PORT_START; port <= TAURI_PORT_END; port++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/state`, {
+        signal: AbortSignal.timeout(300),
+      });
+      if (!res.ok) continue;
+      const body: any = await res.json();
+      if (typeof body?.primaryId !== "string" || typeof body?.playerName !== "string") continue;
+      const pid = body.primaryId.trim();
+      const name = body.playerName.trim();
+      if (!pid || !name) continue;
+      state.myPrimaryId = pid;
+      state.myName = name;
+      console.log(`✓ synced from Tauri :${port} → name="${name}" primaryId="${pid}"`);
+      return { ok: true, port, primaryId: pid, playerName: name };
+    } catch (_) {
+      // Port closed or timed out — keep scanning.
+    }
+  }
+  console.log(`! could not sync from Tauri (no /api/state on ${TAURI_PORT_START}-${TAURI_PORT_END})`);
+  return { ok: false };
+}
+
 // --- Actions exposed to the control panel ---
 
 const actions = {
-  startMatch() {
+  async startMatch() {
     if (state.inMatch) return { ok: false, reason: "already in match" };
+    // Auto-sync the local player identity from Tauri so the recorder tags
+    // the match against the real active profile.
+    await syncFromTauri();
     state.matchGuid = crypto.randomUUID().replace(/-/g, "").toUpperCase().slice(0, 32);
     state.player = blank();
     state.opponent = blank();
@@ -436,10 +475,10 @@ const actions = {
     });
     return { ok: true };
   },
-  scriptedMatch() {
+  async scriptedMatch() {
     if (state.inMatch) return { ok: false, reason: "already in match" };
     if (state.scriptedTimer) clearTimeout(state.scriptedTimer);
-    actions.startMatch();
+    await actions.startMatch();
     // Schedule a series of events over ~30s of wall clock to simulate a match.
     const schedule: Array<[number, () => void]> = [
       [2000, () => actions.ballHit(state.myTeam)],
@@ -466,6 +505,11 @@ const actions = {
     return { ok: true, eventsScheduled: schedule.length };
   },
   setName(name: string) { state.myName = (name || "TestPlayer").slice(0, 32); return { ok: true }; },
+  setPrimaryId(id: string) { state.myPrimaryId = (id || "Mock|1|0").slice(0, 128); return { ok: true }; },
+  async syncFromTauri() {
+    const result = await syncFromTauri();
+    return { ok: result.ok, ...result };
+  },
   setTeam(team: number)  { state.myTeam = (team === 1 ? 1 : 0); return { ok: true }; },
   setTheme(theme: string) { state.theme = (theme || "circle").replace(/[^a-z0-9-]/gi, ""); return { ok: true }; },
   setThemeVar(key: string, value: string | number | boolean | null) {
@@ -554,6 +598,12 @@ Bun.listen({
     open(socket) {
       tcpClients.add(socket);
       console.log(`✓ TCP client connected (${tcpClients.size} on :${TCP_PORT})`);
+      // Identify ourselves as the dev mock so Tauri suspends real-session
+      // mutations (W/L counter + PrimaryId auto-switch). Without this,
+      // mock matches would pollute the user's real RL session.
+      try {
+        socket.write(JSON.stringify({ Event: "MockHandshake", Data: {} }));
+      } catch (_) {}
     },
     close(socket) {
       tcpClients.delete(socket);
@@ -593,7 +643,7 @@ const server = Bun.serve({
     if (url.pathname === "/api/config") {
       return Response.json({
         playerName: state.myName,
-        primaryId: "Mock|1|0",
+        primaryId: state.myPrimaryId,
         theme: state.theme,
         themeVars: state.themeVars,
       });
@@ -628,7 +678,7 @@ const server = Bun.serve({
       if (typeof fn !== "function") {
         return Response.json({ ok: false, reason: "unknown action" }, { status: 400 });
       }
-      const result = fn(...(body.args || []));
+      const result = await fn(...(body.args || []));
       return Response.json(result);
     }
 
@@ -649,6 +699,9 @@ const server = Bun.serve({
 
 startTicks();
 startClock();
+// Best-effort initial sync. Doesn't block startup if Tauri isn't up yet —
+// `startMatch` re-syncs each time, and the panel exposes a manual button.
+syncFromTauri().catch(() => {});
 
 console.log(`
 ╭──────────────────────────────────────────────────────────╮

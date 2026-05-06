@@ -141,6 +141,7 @@
           <option value="1">Orange</option>
         </select>
         <button id="apply">Appliquer</button>
+        <button id="sync" class="primary" title="Récupère le nom + PrimaryId actifs depuis Tauri (49124-49133)">🔁 Sync depuis Tauri</button>
       </div>
       <div class="row" style="margin-top: 10px;">
         <label for="theme">Theme</label>
@@ -252,6 +253,19 @@ $('apply').addEventListener('click', async () => {
   await send('setName', $('name').value);
   await send('setTeam', parseInt($('team').value, 10));
   await send('setTheme', $('theme').value);
+  refresh();
+});
+
+$('sync').addEventListener('click', async () => {
+  const r = await send('syncFromTauri');
+  if (r && r.ok) {
+    $('name').value = r.playerName || '';
+    alert(`Synchronisé depuis Tauri :49${r.port - 49000}\n` +
+          `name = ${r.playerName}\nprimaryId = ${r.primaryId}`);
+  } else {
+    alert('Échec de la synchro — Tauri ne répond pas sur 49124-49133.\n' +
+          'Démarre `bun run tauri:dev` puis réessaie.');
+  }
   refresh();
 });
 

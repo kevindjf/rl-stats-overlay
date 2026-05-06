@@ -107,6 +107,12 @@ pub struct AppState {
     /// In-flight match accumulator; `Some` between MatchInitialized/MatchCreated
     /// and the next MatchEnded/MatchDestroyed. Reset between matches.
     pub recorder: Mutex<Option<InProgressMatch>>,
+    /// Set true when the dev mock-server identifies itself via the
+    /// `MockHandshake` event. Suppresses session counter updates and
+    /// PrimaryId auto-switching while the mock is the live source. Reset
+    /// to false on disconnect so a switch back to the real RL game restores
+    /// normal behavior without a Tauri restart.
+    pub mock_source: AtomicBool,
 }
 
 impl AppState {
@@ -130,6 +136,7 @@ impl AppState {
             user_wants_settings_open: AtomicBool::new(false),
             storage: OnceCell::new(),
             recorder: Mutex::new(None),
+            mock_source: AtomicBool::new(false),
         })
     }
 

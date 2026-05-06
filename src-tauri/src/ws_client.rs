@@ -114,6 +114,11 @@ async fn run_connection(
 ) -> Result<()> {
     let mut stream = TcpStream::connect((RL_STATS_API_HOST, RL_STATS_API_PORT)).await?;
     info!("connected to Rocket League Stats API on {RL_STATS_API_HOST}:{RL_STATS_API_PORT}");
+    // Each new connection starts as "real source" until the peer asserts
+    // otherwise via a `MockHandshake` event. Without this reset, switching
+    // from the dev mock back to the real game would keep the session-skip
+    // behavior stuck on.
+    state.mock_source.store(false, Ordering::SeqCst);
 
     // TCP keep-alive: probe after 1 s of idle, then every 1 s. Caps
     // disconnect detection at ~2-4 s on Windows when RL exits without
@@ -293,6 +298,15 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
     };
 
     match payload.event.as_str() {
+        // Sentinel sent by `dev/mock-server.ts` right after a TCP client
+        // connects. Flips this connection into mock mode so MatchEnded
+        // events don't increment the user's real session counter and
+        // PrimaryId auto-switching is suspended.
+        "MockHandshake" => {
+            if !state.mock_source.swap(true, Ordering::SeqCst) {
+                info!("mock source identified → session counter + PrimaryId auto-switch suspended");
+            }
+        }
         "UpdateState" => on_update_state(app, state, &data),
         "MatchEnded" => {
             // The actual whistle. Clear the in-progress flag here (not on
@@ -501,6 +515,13 @@ fn on_update_state(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Va
         .and_then(|v| v.as_str())
         .map(str::trim)
         .unwrap_or("");
+    // While a mock source is connected, never let its events rewrite the
+    // active profile. The mock auto-syncs PrimaryId from /api/state and
+    // would otherwise create an identity feedback loop that pollutes the
+    // user's real settings.
+    if state.mock_source.load(Ordering::Relaxed) {
+        return;
+    }
     let pid_changed = !new_pid.is_empty() && new_pid != stored_primary_id;
     // Two modes governing how `player_name` is treated:
     //   - Auto mode (candidates non-empty): the user can't edit the pseudo
@@ -550,10 +571,17 @@ fn on_match_ended(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Val
         Some(t) => t,
         None => return,
     };
-    let winner = match data.get("WinnerTeamNum").and_then(|v| v.as_i64()) {
-        Some(w) => w as i32,
-        None => return,
-    };
+    // RL sometimes ships MatchEnded without a WinnerTeamNum — typically on
+    // forfeits, host disconnects, or other unclean exits. Record the match
+    // anyway (so the user's history isn't full of holes) but skip the W/L
+    // tally update since we genuinely don't know the result.
+    let winner: Option<i32> = data
+        .get("WinnerTeamNum")
+        .and_then(|v| v.as_i64())
+        .map(|w| w as i32);
+    if winner.is_none() {
+        warn!("MatchEnded without WinnerTeamNum — persisting with unknown result, session counter not updated");
+    }
 
     // Match-size filter — let the user count only e.g. 3v3s. team_size == 0
     // means we never saw enough UpdateStates to know the match shape; in
@@ -584,21 +612,31 @@ fn on_match_ended(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Val
         }
     }
 
-    {
-        let mut session = state.session.lock();
-        if winner == team {
-            session.record_win();
-        } else {
-            session.record_loss();
+    // Dev mock mode: when the source identified itself via a `MockHandshake`
+    // event on connect, swallow session counter updates so testing matches
+    // don't pollute the user's real W/L tally. Storage / post-match HUD path
+    // below still runs so those features remain testable. The flag resets
+    // automatically on the next reconnect, so flipping back to the real RL
+    // game restores normal behavior without restarting Tauri.
+    let mock_mode = state.mock_source.load(Ordering::Relaxed);
+    if mock_mode {
+        info!("mock source connected → skipping session counter update");
+    } else if let Some(winner) = winner {
+        {
+            let mut session = state.session.lock();
+            if winner == team {
+                session.record_win();
+            } else {
+                session.record_loss();
+            }
+            // Mirror to settings so the value survives a restart.
+            let snapshot = session.clone();
+            let mut settings = state.settings.lock();
+            settings.session = snapshot;
         }
-        // Mirror to settings so the value survives a restart.
-        let snapshot = session.clone();
-        let mut settings = state.settings.lock();
-        settings.session = snapshot;
+        state.request_save_settings();
+        let _ = app.emit("rlstats://session-changed", ());
     }
-    state.request_save_settings();
-
-    let _ = app.emit("rlstats://session-changed", ());
 
     // Finalize and persist the recorder, if any. Done after the W/L tally so
     // a slow DB write never blocks the existing flow.
@@ -618,7 +656,7 @@ fn on_match_ended(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Val
             warn!("primary_id still unknown at MatchEnded — skipping persistence");
             return;
         }
-        let record = rec.finalize(Some(winner as u8));
+        let record = rec.finalize(winner.map(|w| w as u8));
         let guid_for_event = record.match_guid.clone();
         let app_clone = app.clone();
         // Run the write off the WS read task to avoid stalling on disk I/O.
