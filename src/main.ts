@@ -213,11 +213,10 @@ let isEditingSession = false;
 type TopTab = "settings" | "history" | "session" | "alltime";
 
 /// Feature flag: the History / Session / All-time analytics views are
-/// fully implemented end-to-end (capture, storage, queries, UI) but
-/// hidden in the v1 release so we ship a focused product around the
-/// post-match HUD first. Flip to `true` for the v2 release that exposes
-/// the analytics tabs. Backend keeps recording matches in either mode.
-const FEATURE_ANALYTICS_TABS = false;
+/// fully implemented end-to-end (capture, storage, queries, UI). Flipped
+/// on for the analytics-enabled release. Backend keeps recording matches
+/// regardless of this flag — toggling it only affects UI visibility.
+const FEATURE_ANALYTICS_TABS = true;
 
 function readTopTab(): TopTab {
   if (!FEATURE_ANALYTICS_TABS) return "settings";

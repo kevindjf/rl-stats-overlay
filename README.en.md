@@ -28,14 +28,18 @@
   <br><em>Preview: your live session (wins, losses, streak) shown over Rocket League.</em>
 </p>
 
-- **A live overlay of your session**: number of **wins**, **losses**, and the current **streak** (🔥 win streak, ❄️ loss streak). Numbers update on their own at the end of every match.
+- **A live overlay of your session**: number of **wins**, **losses**, and the current **streak** (🔥 win streak, ❄️ loss streak). Numbers update on their own at the end of every match. **Visible by default on launch** — one click to hide if you only want the OBS source.
 - **Live in-match stats**: goals, saves, shots, assists — pulled in real time from the Stats API and shown in the dashboard and compatible themes.
+- **Detailed post-match recap**: at the end of every match, a dedicated window shows your full stats — average boost, BPM, time at 0/100, boost distribution, average speed, distance traveled, time on ground/aerial/wall, powerslides, demos given/taken. Also available as an OBS browser source.
+  - **Match / Session toggle**: switch between the last match's recap and the rolling session aggregate (same metrics, averaged over every match played since the last reset).
+  - Closing the X on the Tauri window also blanks the OBS source in lockstep.
+- **Analytics tabs** in the settings window: History (paginated list + per-match detail), Session (W/L aggregates, averages, records), All-time (career-wide). Multi-profile selector if you've played on multiple accounts.
 - **Two display modes** (or both at once):
   - 🎮 **In-game HUD** — a small transparent window placed on top of Rocket League. **Edit mode** to move/resize it with the mouse (drag the middle to move, bottom-right grip to scale), turned off during play so clicks pass through to the game. **Scale slider** in settings for percent-perfect sizing. Right-click for the context menu (Reset session / Lock / Quit). Auto-scales to your monitor's DPI on first launch (1080p / 1440p / 4K / 5K+).
   - 📺 **OBS Browser Source** — URL to paste into a Browser Source for your stream.
 - **Quick floating launcher**: a small clickable circle on the left edge of your screen opens the settings window in one click. Auto-hidden during a match.
 - **Several themes** ready to use (and you can build your own — see [the designer guide](docs/themes/designer-guide.en.md))
-- **Smart session**: your wins/losses are saved and persist between restarts. The session resets itself after 6h of inactivity (new gaming day = clean counters).
+- **Smart session**: your wins/losses are saved and persist between restarts. The session resets itself after 6h of inactivity (new gaming day = clean counters). Clicking **Reset** on the HUD or in the Session tab cleanly starts a new session — DB and in-memory counters always stay in sync.
 - **Auto-hide HUD when RL is offline** (option): the HUD appears on its own when Rocket League opens and disappears when it closes.
 - **Collapsible settings window**: every section (Session, Player, Appearance, HUD, OBS, Theme) folds away with one click on its title. When collapsed, a brief summary stays visible on the right (e.g. `12W · 5L · +3` for the session, `Circle` for the active theme), and the open/closed state is remembered across restarts.
 - **Guided setup**: no need to dig through your files — the app finds your Rocket League install on its own (Steam or Epic), turns on the "live stats" feature already built into the game (but disabled by default), and **auto-detects your local Steam/Epic account**. No name typing required in the majority of cases — the overlay identifies you on the first match (and follows account switches transparently).

@@ -148,6 +148,23 @@ export interface AggregateStats {
   avgSupersonicPct: number | null;
   avgAerialPct: number | null;
   avgPowerslideCount: number | null;
+  // Extended aggregates for the post-match HUD's "Session" toggle.
+  avgDemosTaken: number | null;
+  avgBoostingPct: number | null;
+  avgBoostTimeAt0S: number | null;
+  avgBoostTimeAt100S: number | null;
+  avgBoostPct025: number | null;
+  avgBoostPct2550: number | null;
+  avgBoostPct5075: number | null;
+  avgBoostPct75100: number | null;
+  avgSpeedAvgPct: number | null;
+  avgPctTimeSlow: number | null;
+  avgPctTimeBoostSpeed: number | null;
+  avgPctTimeGround: number | null;
+  avgPctTimeWall: number | null;
+  totalDistance: number | null;
+  totalPowerslideS: number | null;
+  totalDurationS: number;
   byTeamSize: PlaylistBreakdown[];
   recentOutcomes: boolean[];
   bestMatchScore: number | null;

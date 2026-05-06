@@ -258,6 +258,19 @@ pub struct InProgressMatch {
     pub orange_score: u32,
     pub last_seconds_remaining: i32,
     pub overtime: bool,
+    /// Match length in seconds, captured from the first `Game.TimeSeconds`
+    /// seen during regulation (e.g. 300 for 3v3, 480 for 1v1). Used by
+    /// `finalize` to compute gameplay-time `duration_seconds` instead of
+    /// wall-clock, which inflates by replays/podium/OT pause.
+    match_length_seconds: Option<i32>,
+    /// Last `Game.TimeSeconds` seen while NOT in overtime. Subtracted from
+    /// `match_length_seconds` to get how much of regulation was played.
+    last_regulation_remaining: i32,
+    /// Max `Game.TimeSeconds` seen while in overtime — RL counts UP from 0
+    /// in OT, so the last value seen is the OT duration.
+    max_ot_elapsed: i32,
+    /// True if `bOvertime` was ever set during the match.
+    ever_in_overtime: bool,
     /// Decimation : we keep one tick out of `tick_skip + 1`.
     tick_skip_target: u32,
     tick_seen: u32,
@@ -287,6 +300,10 @@ impl InProgressMatch {
             orange_score: 0,
             last_seconds_remaining: 0,
             overtime: false,
+            match_length_seconds: None,
+            last_regulation_remaining: 0,
+            max_ot_elapsed: 0,
+            ever_in_overtime: false,
             tick_skip_target: 0,
             tick_seen: 0,
             sample_count: 0,
@@ -393,8 +410,25 @@ impl InProgressMatch {
                     if idx == 1 { self.orange_score = score; }
                 }
             }
-            self.last_seconds_remaining = g.get("TimeSeconds").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            self.overtime = g.get("bOvertime").and_then(|v| v.as_bool()).unwrap_or(false);
+            let time_secs = g.get("TimeSeconds").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let in_ot = g.get("bOvertime").and_then(|v| v.as_bool()).unwrap_or(false);
+            self.last_seconds_remaining = time_secs;
+            // Latch overtime so the badge sticks even if MatchEnded arrives on
+            // a tick where bOvertime has already cleared.
+            if in_ot {
+                self.overtime = true;
+                self.ever_in_overtime = true;
+                if time_secs > self.max_ot_elapsed {
+                    self.max_ot_elapsed = time_secs;
+                }
+            } else {
+                // First regulation tick captures the match length. Subsequent
+                // regulation ticks track how close to 0 the clock got.
+                if self.match_length_seconds.is_none() {
+                    self.match_length_seconds = Some(time_secs);
+                }
+                self.last_regulation_remaining = time_secs;
+            }
         }
         // Team size = max players per team
         let mut counts = [0u8; 4];
@@ -502,7 +536,23 @@ impl InProgressMatch {
 
         let started_at_ms = self.started_at_ms;
         let ended_at_ms = now_ms();
-        let duration_seconds = ((ended_at_ms - started_at_ms).max(0) / 1000) as u32;
+        // Gameplay-time duration from `Game.TimeSeconds`, NOT wall-clock.
+        // Wall-clock includes kickoff countdown, goal replays, OT pause and
+        // post-whistle podium — would inflate a 5-min match to 8-9 min.
+        // Falls back to wall-clock only if we never saw an UpdateState (very
+        // short matches or cold-start race).
+        let duration_seconds = match self.match_length_seconds {
+            Some(match_length) => {
+                let regulation_played = if self.ever_in_overtime {
+                    // OT only happens after regulation fully expires.
+                    match_length
+                } else {
+                    (match_length - self.last_regulation_remaining).max(0)
+                };
+                (regulation_played + self.max_ot_elapsed).max(0) as u32
+            }
+            None => ((ended_at_ms - started_at_ms).max(0) / 1000) as u32,
+        };
         let dt = self.sample_dt_s;
         let is_win = matches!(winner_team_num, Some(w) if w == self.local_team_num);
         let arena = self.arena.clone();
@@ -734,6 +784,59 @@ mod tests {
         assert!(s.boost_time_at_0_s > 0.0);
         // Powerslide hit once on the third sample.
         assert_eq!(s.powerslide_count, 1);
+    }
+
+    #[test]
+    fn duration_uses_gameplay_time_not_wall_clock() {
+        // Simulate a regulation match: match_length=300, ends at t=12s remaining
+        // → 288s of gameplay, regardless of wall-clock.
+        let mut m = InProgressMatch::begin("M1".into(), "Mock|1|0".into());
+        m.local_team_num = 0;
+        m.tick_skip_target = 1;
+        let g_start = json!({ "Arena": "Stadium_P", "Teams": [], "TimeSeconds": 300, "bOvertime": false });
+        let g_mid   = json!({ "Arena": "Stadium_P", "Teams": [], "TimeSeconds": 150, "bOvertime": false });
+        let g_end   = json!({ "Arena": "Stadium_P", "Teams": [], "TimeSeconds": 12,  "bOvertime": false });
+        m.ingest_update_state(&vec![me_tick(80, 1500.0, true, false, true, false)], Some(&g_start), Some(0));
+        m.ingest_update_state(&vec![me_tick(50, 1500.0, true, false, true, false)], Some(&g_mid), Some(0));
+        m.ingest_update_state(&vec![me_tick(20, 1500.0, true, false, true, false)], Some(&g_end), Some(0));
+        let r = m.finalize(Some(0));
+        assert_eq!(r.duration_seconds, 288, "300 - 12 = 288s of regulation gameplay");
+        assert!(!r.overtime);
+    }
+
+    #[test]
+    fn duration_includes_overtime_elapsed() {
+        // Regulation runs out (TimeSeconds=0), then OT counts up to 47s.
+        // Expected duration = 300 (regulation) + 47 (OT) = 347s.
+        let mut m = InProgressMatch::begin("M1".into(), "Mock|1|0".into());
+        m.local_team_num = 0;
+        m.tick_skip_target = 1;
+        let g_reg_start = json!({ "TimeSeconds": 300, "bOvertime": false });
+        let g_reg_end   = json!({ "TimeSeconds": 0,   "bOvertime": false });
+        let g_ot_mid    = json!({ "TimeSeconds": 25,  "bOvertime": true  });
+        let g_ot_end    = json!({ "TimeSeconds": 47,  "bOvertime": true  });
+        m.ingest_update_state(&vec![me_tick(80, 1500.0, true, false, true, false)], Some(&g_reg_start), Some(0));
+        m.ingest_update_state(&vec![me_tick(50, 1500.0, true, false, true, false)], Some(&g_reg_end),   Some(0));
+        m.ingest_update_state(&vec![me_tick(40, 1500.0, true, false, true, false)], Some(&g_ot_mid),    Some(0));
+        m.ingest_update_state(&vec![me_tick(20, 1500.0, true, false, true, false)], Some(&g_ot_end),    Some(0));
+        let r = m.finalize(Some(0));
+        assert_eq!(r.duration_seconds, 347, "300 regulation + 47 OT = 347s");
+        assert!(r.overtime, "overtime flag latches once seen");
+    }
+
+    #[test]
+    fn finalize_with_no_winner_records_loss_and_persists_match() {
+        // Forfeit-style end: finalize called with winner_team_num=None.
+        // Match should still be a valid record, with is_win=false (no winner
+        // means we can't claim victory) and winner_team_num preserved as None.
+        let mut m = InProgressMatch::begin("M1".into(), "Mock|1|0".into());
+        m.local_team_num = 0;
+        m.tick_skip_target = 1;
+        let game = json!({ "Arena": "Stadium_P", "Teams": [], "TimeSeconds": 300, "bOvertime": false });
+        m.ingest_update_state(&vec![me_tick(50, 1500.0, true, false, true, false)], Some(&game), Some(0));
+        let r = m.finalize(None);
+        assert!(r.winner_team_num.is_none());
+        assert!(!r.is_win);
     }
 
     #[test]

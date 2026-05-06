@@ -165,6 +165,26 @@ pub struct AggregateStats {
     pub avg_supersonic_pct: Option<f32>,
     pub avg_aerial_pct: Option<f32>,
     pub avg_powerslide_count: Option<f32>,
+    /// Extended aggregates used by the post-match HUD's "Session" toggle —
+    /// same metric set as a single match, summed/averaged across the scope.
+    pub avg_demos_taken: Option<f32>,
+    pub avg_boosting_pct: Option<f32>,
+    pub avg_boost_time_at_0_s: Option<f32>,
+    pub avg_boost_time_at_100_s: Option<f32>,
+    pub avg_boost_pct_0_25: Option<f32>,
+    pub avg_boost_pct_25_50: Option<f32>,
+    pub avg_boost_pct_50_75: Option<f32>,
+    pub avg_boost_pct_75_100: Option<f32>,
+    pub avg_speed_avg_pct: Option<f32>,
+    pub avg_pct_time_slow: Option<f32>,
+    pub avg_pct_time_boost_speed: Option<f32>,
+    pub avg_pct_time_ground: Option<f32>,
+    pub avg_pct_time_wall: Option<f32>,
+    /// Sums (not averages) — distance and powerslide totals are meaningful
+    /// summed across a session.
+    pub total_distance: Option<f32>,
+    pub total_powerslide_s: Option<f32>,
+    pub total_duration_s: u32,
     pub by_team_size: Vec<PlaylistBreakdown>,
     /// Last 30 win/loss outcomes, oldest first. `true` = win.
     pub recent_outcomes: Vec<bool>,

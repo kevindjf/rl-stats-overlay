@@ -160,7 +160,7 @@ fn get_state(app: AppHandle, state: State<'_, Arc<AppState>>) -> StateSnapshot {
         .and_then(|w| w.outer_size().ok())
         .map(|s| (s.width, s.height))
         .or(settings.hud_size)
-        .unwrap_or((400, 300));
+        .unwrap_or((DEFAULT_HUD_W, DEFAULT_HUD_H));
     let scale_factor = win
         .as_ref()
         .and_then(|w| w.scale_factor().ok())
@@ -237,6 +237,17 @@ fn reset_session(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<(), 
         let mut settings = state.settings.lock();
         settings.session = snapshot;
         settings.save().map_err(|e| e.to_string())?;
+    }
+    // Rotate the DB session too so the analytics "Session" tab aggregate
+    // resets in lockstep with the legacy in-memory counters. Skip silently
+    // if storage isn't ready yet or no profile is active.
+    if let Some(storage) = state.storage.get() {
+        let pid = state.settings.lock().primary_id.clone();
+        if !pid.is_empty() {
+            if let Err(err) = storage.start_new_session(&pid, "manual") {
+                warn!(?err, "failed to rotate DB session on reset_session");
+            }
+        }
     }
     let _ = app.emit("rlstats://session-changed", ());
     Ok(())
@@ -813,9 +824,10 @@ fn open_folder_in_explorer(path: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Resize the HUD proportionally to the factory-default base (400×300, in
-/// physical pixels — matches `tauri.conf.json` and the JS auto-fit's
-/// `SCALE_BASE_W/H`). `percent` is clamped to a sane range; the X/Y origin
+/// Resize the HUD proportionally to the factory-default base
+/// (`DEFAULT_HUD_W` × `DEFAULT_HUD_H`, in physical pixels — matches
+/// `tauri.conf.json` and the JS auto-fit's `SCALE_BASE_W/H`).
+/// `percent` is clamped to a sane range; the X/Y origin
 /// stays put so the user's positioning isn't disrupted by a scale tweak.
 /// The shared overlay JS picks up the new window size on its `resize` event
 /// and updates the `--hud-scale` CSS var so the panel content scales along
@@ -1142,13 +1154,13 @@ fn reconcile_launcher_visibility(handle: &AppHandle, state: &Arc<AppState>) {
 /// Default HUD size declared in `tauri.conf.json`, in *logical* pixels —
 /// Tauri interprets `width` / `height` from the conf as logical, then the OS
 /// applies the monitor's scale factor at window creation time. So on a
-/// Retina Mac (scale 2.0) the natural boot size is 800×600 physical, while
-/// on a 1× Windows it's 400×300 physical. Every scale-related calculation
+/// Retina Mac (scale 2.0) the natural boot size is 612×526 physical, while
+/// on a 1× Windows it's 306×263 physical. Every scale-related calculation
 /// must multiply by `scale_factor` before talking to `set_size(PhysicalSize)`
 /// — otherwise the slider's "100 %" silently shrinks the window to half its
 /// boot size on HiDPI displays.
-const DEFAULT_HUD_W: u32 = 400;
-const DEFAULT_HUD_H: u32 = 300;
+const DEFAULT_HUD_W: u32 = 306;
+const DEFAULT_HUD_H: u32 = 263;
 
 /// Pick a one-shot HUD size based on the monitor the HUD lands on at boot.
 /// Returns `None` when the natural boot size (= logical 400×300 × monitor
@@ -1590,14 +1602,13 @@ pub fn run() {
                     }
                 });
             }
-            {
-                let handle_listen = handle.clone();
-                handle.listen("rlstats://match-started", move |_event| {
-                    if let Some(win) = handle_listen.get_webview_window("post_match_hud") {
-                        let _ = win.hide();
-                    }
-                });
-            }
+            // Note: we deliberately DO NOT hide the post-match HUD window on
+            // `rlstats://match-started`. Persistent display — the previous
+            // match's recap stays visible until either (a) the user clicks the
+            // X, or (b) the next MatchEnded fires and the listener above
+            // replaces the content with the new match's stats. Felt buggy
+            // when the window vanished mid-scoreboard at the next match's
+            // countdown.
             // Create the post-match HUD window programmatically once the
             // embedded HTTP server is up. We deliberately do NOT declare it
             // in `tauri.conf.json` because that path tries to fetch the URL

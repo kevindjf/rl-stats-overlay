@@ -71,10 +71,39 @@ body::-webkit-scrollbar-thumb:hover {
   font-size: 13px;
   letter-spacing: 1.2px;
 }
-.result-badge.win  { background: rgba(93, 209, 111, 0.22); color: #5dd16f; }
-.result-badge.loss { background: rgba(255, 92, 92, 0.22);  color: #ff5c5c; }
+.result-badge.win     { background: rgba(93, 209, 111, 0.22); color: #5dd16f; }
+.result-badge.loss    { background: rgba(255, 92, 92, 0.22);  color: #ff5c5c; }
+.result-badge.unknown { background: rgba(255, 255, 255, 0.10); color: rgba(255, 255, 255, 0.65); }
 .pm-score { font-weight: 800; font-size: 24px; font-variant-numeric: tabular-nums; }
 .pm-meta  { margin-left: auto; color: rgba(255,255,255,0.55); font-size: 12px; }
+
+/* ===== Match / Session toggle ======================================== */
+.pm-mode-toggle {
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+.pm-mode {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.pm-mode:hover { color: rgba(255, 255, 255, 0.85); }
+.pm-mode.active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
 
 /* ===== Close button ================================================== */
 .pm-close {
@@ -207,19 +236,6 @@ abbr {
   color: #ffb13a;
   font-size: 11px;
   text-align: center;
-}
-
-.empty-state {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0;
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 13px;
-  background: rgba(15, 18, 26, 0.85);
-  border-radius: 14px;
 }
 
 @keyframes appear {

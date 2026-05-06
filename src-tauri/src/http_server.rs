@@ -66,6 +66,7 @@ pub async fn start(state: Arc<AppState>) -> Result<()> {
         .route("/hud/start-resize", post(hud_start_resize))
         .route("/hud/toggle-lock", post(hud_toggle_lock))
         .route("/hud/post-match-close", post(post_match_hud_close))
+        .route("/hud/post-match-mode", post(post_match_hud_set_mode))
         .route("/session/reset", post(session_reset))
         .route("/app/quit", post(app_quit))
         // Floating launcher badge → settings window. POSTed from the
@@ -194,6 +195,9 @@ struct StateSnapshot {
     launcher_enabled: bool,
     /// True between MatchInitialized/MatchCreated and MatchDestroyed.
     match_in_progress: bool,
+    /// Active toggle on the post-match HUD ("match" | "session"). Shared
+    /// across the Tauri window and every OBS browser source via this field.
+    post_match_hud_mode: String,
 }
 
 async fn api_state(State(state): State<Arc<AppState>>) -> Json<StateSnapshot> {
@@ -210,6 +214,7 @@ async fn api_state(State(state): State<Arc<AppState>>) -> Json<StateSnapshot> {
         match_stats: state.match_stats.lock().clone(),
         launcher_enabled: settings.launcher_enabled,
         match_in_progress: state.match_in_progress.load(Ordering::SeqCst),
+        post_match_hud_mode: settings.post_match_hud_mode,
     })
 }
 
@@ -295,8 +300,10 @@ async fn hud_toggle_lock(State(state): State<Arc<AppState>>) -> Response {
 
 /// "X" close button on the post-match HUD page → hide the window. The Rust
 /// listener for `rlstats://match-recorded` will show it again at the next
-/// match end. Also clears `last_match_recorded_guid` so a future cold reboot
-/// doesn't re-show the now-dismissed match.
+/// match end. Also clears `last_match_recorded_guid`, which (a) prevents a
+/// future cold reboot from re-showing the now-dismissed match and (b) is
+/// the gate `api_match_summary_latest` checks, so OBS browser sources hide
+/// in lockstep on their next poll.
 async fn post_match_hud_close(State(state): State<Arc<AppState>>) -> Response {
     let app = match state.app_handle.get() {
         Some(a) => a,
@@ -313,9 +320,41 @@ async fn post_match_hud_close(State(state): State<Arc<AppState>>) -> Response {
     StatusCode::OK.into_response()
 }
 
+/// Set the active toggle on the post-match HUD page (Match / Session). Shared
+/// across the Tauri window and every OBS browser source — they all poll the
+/// resulting value via `/api/state` so a click in one surface propagates to
+/// the others within one polling tick. Accepts the new mode as a `?mode=`
+/// query param to avoid a JSON deserializer for what is just a 2-value enum.
+async fn post_match_hud_set_mode(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let raw = q.get("mode").map(String::as_str).unwrap_or("");
+    let normalized = match raw {
+        "match" | "session" => raw.to_string(),
+        _ => return (StatusCode::BAD_REQUEST, "mode must be 'match' or 'session'").into_response(),
+    };
+    {
+        let mut s = state.settings.lock();
+        if s.post_match_hud_mode != normalized {
+            s.post_match_hud_mode = normalized;
+        } else {
+            // No-op when the mode didn't actually change. Keeps the writer
+            // task idle for redundant clicks.
+            return StatusCode::OK.into_response();
+        }
+    }
+    state.request_save_settings();
+    StatusCode::OK.into_response()
+}
+
 /// Right-click "Reset session" handler. Mirrors the `reset_session` Tauri
 /// command but reachable without `window.__TAURI__` (the HUD's webview is
 /// loaded over plain HTTP, not the tauri:// protocol).
+///
+/// Also closes the current DB session and opens a fresh one so the analytics
+/// "Session" tab boundary stays in sync with the user's intent (otherwise the
+/// HUD shows 0/0 but the analytics tab keeps aggregating the prior matches).
 async fn session_reset(State(state): State<Arc<AppState>>) -> Response {
     {
         let mut session = state.session.lock();
@@ -325,6 +364,17 @@ async fn session_reset(State(state): State<Arc<AppState>>) -> Response {
         settings.session = snapshot;
     }
     state.request_save_settings();
+    // Best-effort DB session rotation. The active profile may not be set yet
+    // (very early boot) — in that case the analytics aggregate has nothing
+    // to scope anyway, so silently skip.
+    if let Some(storage) = state.storage.get() {
+        let pid = state.settings.lock().primary_id.clone();
+        if !pid.is_empty() {
+            if let Err(err) = storage.start_new_session(&pid, "manual") {
+                warn!(?err, "failed to rotate DB session on HUD reset");
+            }
+        }
+    }
     if let Some(app) = state.app_handle.get() {
         let _ = app.emit("rlstats://session-changed", ());
     }
@@ -389,6 +439,12 @@ fn active_primary_id(state: &Arc<AppState>) -> Result<String, Response> {
 async fn api_match_summary_latest(State(state): State<Arc<AppState>>) -> Response {
     let storage = match require_storage(&state) { Ok(s) => s, Err(r) => return r };
     let pid = match active_primary_id(&state) { Ok(p) => p, Err(r) => return r };
+    // Same dismissal flag as the Tauri HUD: when the user clicks the X on
+    // the post-match window, `post_match_hud_close` clears this. Returning
+    // 204 here makes the OBS browser source hide in lockstep on its next poll.
+    if state.settings.lock().last_match_recorded_guid.is_none() {
+        return StatusCode::NO_CONTENT.into_response();
+    }
     match storage.recent_matches(&pid, 1, 0) {
         Ok(rows) if rows.is_empty() => StatusCode::NO_CONTENT.into_response(),
         Ok(rows) => match storage.match_detail(&rows[0].match_guid) {
@@ -415,6 +471,13 @@ async fn api_match_summary_guid(
 async fn api_session_summary(State(state): State<Arc<AppState>>) -> Response {
     let storage = match require_storage(&state) { Ok(s) => s, Err(r) => return r };
     let pid = match active_primary_id(&state) { Ok(p) => p, Err(r) => return r };
+    // Same dismissal semantics as `api_match_summary_latest`: when the user
+    // clicks the X on the post-match HUD, `post_match_hud_close` clears
+    // `last_match_recorded_guid` and we want both modes (match + session)
+    // to go transparent on OBS in lockstep.
+    if state.settings.lock().last_match_recorded_guid.is_none() {
+        return StatusCode::NO_CONTENT.into_response();
+    }
     let session_id = match storage.current_session_id(&pid) {
         Ok(id) => id,
         Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),

@@ -28,14 +28,18 @@
   <br><em>Aperçu : ta session en direct (wins, losses, streak) affichée par-dessus Rocket League.</em>
 </p>
 
-- **Un overlay en direct de ta session** : nombre de **wins**, de **losses**, et la **streak** en cours (🔥 série de victoires, ❄️ série de défaites). À chaque match terminé, les chiffres bougent tout seuls.
+- **Un overlay en direct de ta session** : nombre de **wins**, de **losses**, et la **streak** en cours (🔥 série de victoires, ❄️ série de défaites). À chaque match terminé, les chiffres bougent tout seuls. **Affiché par défaut au lancement** — désactivable d'un clic si tu veux uniquement la source OBS.
 - **Stats live du match en cours** : buts, arrêts, tirs, passes décisives — extraits en direct de la Stats API et affichés dans le dashboard et les thèmes compatibles.
+- **Récap post-match détaillé** : à la fin de chaque match, une fenêtre dédiée affiche tes stats complètes — boost moyen, BPM, temps à 0/100, distribution du boost, vitesse moyenne, distance parcourue, temps au sol/aérien/mur, powerslides, démos infligées/subies. Disponible aussi en source navigateur OBS.
+  - **Toggle Match / Session** : bascule entre le résumé du dernier match et l'agrégat de la session entière (mêmes métriques, moyennées sur tous les matchs joués depuis le dernier reset).
+  - Fermer la croix sur la fenêtre Tauri → la source OBS devient transparente en lockstep.
+- **Onglets Analytics** dans la fenêtre des réglages : Historique (liste paginée + détail par match), Session (agrégats W/L, moyennes, records), All-time (sur toute ta carrière). Sélecteur multi-profils si tu jouais sur plusieurs comptes.
 - **Deux modes d'affichage au choix** (ou les deux en même temps) :
   - 🎮 **HUD in-game** — une petite fenêtre transparente posée par-dessus ton Rocket League. **Mode édition** pour la déplacer/redimensionner à la souris (drag au milieu pour bouger, poignée bas-droit pour scale), désactivé pendant le jeu pour que les clics passent au jeu. **Slider d'échelle** dans les réglages pour un scale au pourcentage près. Clic-droit pour le menu contextuel (Reset session / Verrouiller / Quitter). Auto-scale selon le DPI de ton écran au premier lancement (1080p / 1440p / 4K / 5K+).
   - 📺 **Source navigateur OBS** — URL à coller dans une Browser Source pour ton stream.
 - **Bouton flottant rapide** : un petit rond cliquable sur le bord gauche de ton écran ouvre la fenêtre des réglages d'un clic. Auto-masqué pendant un match.
 - **Plusieurs thèmes** prêts à l'emploi (et tu peux créer le tien — voir [le guide designer](docs/themes/designer-guide.md))
-- **Session intelligente** : tes wins/losses sont sauvegardés et persistent entre redémarrages. La session se réinitialise toute seule après 6h d'inactivité (nouvelle journée de jeu = compteurs propres).
+- **Session intelligente** : tes wins/losses sont sauvegardés et persistent entre redémarrages. La session se réinitialise toute seule après 6h d'inactivité (nouvelle journée de jeu = compteurs propres). Cliquer sur **Reset** sur le HUD ou dans l'onglet Session démarre proprement une nouvelle session — la session DB et le compteur in-memory restent toujours synchros.
 - **Auto-hide du HUD quand RL est fermé** (option) : le HUD apparaît tout seul à l'ouverture de Rocket League et disparaît à sa fermeture.
 - **Fenêtre de réglages repliable** : chaque section (Session, Joueur, Apparence, HUD, OBS, Thème) se plie/déplie d'un clic sur son titre. Quand elle est repliée, un mini-résumé reste affiché à droite (ex: `12W · 5L · +3` pour la session, `Circle` pour le thème actif) et l'état ouvert/fermé est mémorisé entre redémarrages.
 - **Setup guidé** : pas besoin d'aller chercher tes fichiers à la main — l'app retrouve toute seule où ton Rocket League est installé (Steam ou Epic), active pour toi la fonction "stats en direct" déjà intégrée au jeu (mais désactivée par défaut), et **détecte automatiquement ton compte Steam/Epic local**. Aucune saisie de pseudo nécessaire dans la majorité des cas — l'overlay s'associe à toi tout seul dès le premier match (et suit même les changements de compte).

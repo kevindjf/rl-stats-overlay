@@ -69,17 +69,45 @@ impl Storage {
     /// Return the active session id for a profile, creating one if none exists.
     pub fn current_session_id(&self, primary_id: &str) -> Result<i64> {
         let conn = self.conn.lock();
-        if let Some(id) = conn
+        // Find the active (open) session, if any.
+        let active = conn
             .query_row(
-                "SELECT id FROM sessions WHERE primary_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1",
+                "SELECT id, started_at FROM sessions WHERE primary_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1",
                 params![primary_id],
-                |row| row.get::<_, i64>(0),
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
             )
             .optional()
-            .context("looking up active session")?
-        {
-            return Ok(id);
+            .context("looking up active session")?;
+
+        if let Some((session_id, started_at)) = active {
+            // Stale auto-rotation: if the most recent activity in this session
+            // (latest match's ended_at, or session.started_at if no matches
+            // yet) is older than the in-memory session timeout, close it and
+            // open a fresh one. Keeps the analytics "Session" tab in sync
+            // with the legacy in-memory counter when the user comes back the
+            // next day without clicking reset.
+            let last_match_ended: Option<i64> = conn
+                .query_row(
+                    "SELECT MAX(ended_at) FROM matches WHERE session_id = ?",
+                    params![session_id],
+                    |row| row.get::<_, Option<i64>>(0),
+                )
+                .optional()
+                .context("looking up last match in active session")?
+                .flatten();
+            let last_activity = last_match_ended.unwrap_or(started_at).max(started_at);
+            let now = now_ms() as i64;
+            let timeout_ms = crate::session::Session::TIMEOUT_MS as i64;
+            if (now - last_activity).max(0) < timeout_ms {
+                return Ok(session_id);
+            }
+            conn.execute(
+                "UPDATE sessions SET ended_at = ? WHERE id = ?",
+                params![now, session_id],
+            )
+            .context("closing stale session")?;
         }
+
         let now = now_ms();
         conn.execute(
             "INSERT INTO sessions(primary_id, started_at, reset_reason) VALUES(?, ?, 'auto')",
@@ -520,6 +548,64 @@ impl Storage {
             })?
         };
 
+        // Extended SPECTATOR aggregates used by the post-match HUD's
+        // "Session" toggle. Same scope clause as the core averages — kept in
+        // a separate query so the simpler analytics dashboard doesn't pay the
+        // cost when only the basic columns are needed.
+        let sql_ext = format!(
+            r#"SELECT
+                AVG(mp.demos_taken),
+                AVG(mp.boost_pct_boosting),
+                AVG(mp.boost_time_at_0_s),
+                AVG(mp.boost_time_at_100_s),
+                AVG(mp.boost_pct_0_25),
+                AVG(mp.boost_pct_25_50),
+                AVG(mp.boost_pct_50_75),
+                AVG(mp.boost_pct_75_100),
+                AVG(mp.speed_avg_pct),
+                AVG(mp.pct_time_slow),
+                AVG(mp.pct_time_boost_speed),
+                AVG(mp.pct_time_ground),
+                AVG(mp.pct_time_wall),
+                SUM(mp.total_distance),
+                SUM(mp.powerslide_total_s),
+                SUM(m.duration_seconds)
+                FROM matches m
+                JOIN match_players mp ON mp.match_guid = m.match_guid
+                {scope_inner}
+                AND mp.is_local_player = 1"#,
+            scope_inner = if session_id.is_some() {
+                "WHERE m.primary_id = ? AND m.session_id = ?"
+            } else {
+                "WHERE m.primary_id = ?"
+            }
+        );
+        // 16 columns: 13 AVG (Option<f32> from possibly-NULL columns), 2 SUM
+        // (Option<f32> when set has no rows), 1 SUM of i64 (duration).
+        type ExtRow = (
+            Option<f32>, Option<f32>, Option<f32>, Option<f32>,
+            Option<f32>, Option<f32>, Option<f32>, Option<f32>,
+            Option<f32>, Option<f32>, Option<f32>, Option<f32>,
+            Option<f32>,
+            Option<f32>, Option<f32>,
+            Option<i64>,
+        );
+        let map_ext = |row: &Row| -> rusqlite::Result<ExtRow> {
+            Ok((
+                row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?,
+                row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?,
+                row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?,
+                row.get(12)?,
+                row.get(13)?, row.get(14)?,
+                row.get(15)?,
+            ))
+        };
+        let ext = if let Some(sid) = session_id {
+            conn.query_row(&sql_ext, params![primary_id, sid], map_ext)?
+        } else {
+            conn.query_row(&sql_ext, params![primary_id], map_ext)?
+        };
+
         // Recent W/L outcomes (oldest first).
         let sql_recent = format!(
             r#"SELECT is_win FROM matches {scope_clause}
@@ -604,6 +690,22 @@ impl Storage {
             avg_supersonic_pct: local_avg.8,
             avg_aerial_pct: local_avg.9,
             avg_powerslide_count: local_avg.10,
+            avg_demos_taken: ext.0,
+            avg_boosting_pct: ext.1,
+            avg_boost_time_at_0_s: ext.2,
+            avg_boost_time_at_100_s: ext.3,
+            avg_boost_pct_0_25: ext.4,
+            avg_boost_pct_25_50: ext.5,
+            avg_boost_pct_50_75: ext.6,
+            avg_boost_pct_75_100: ext.7,
+            avg_speed_avg_pct: ext.8,
+            avg_pct_time_slow: ext.9,
+            avg_pct_time_boost_speed: ext.10,
+            avg_pct_time_ground: ext.11,
+            avg_pct_time_wall: ext.12,
+            total_distance: ext.13,
+            total_powerslide_s: ext.14,
+            total_duration_s: ext.15.unwrap_or(0).max(0) as u32,
             by_team_size: ts_rows,
             recent_outcomes: recent,
             best_match_score: best.as_ref().map(|(_, s)| *s),
@@ -884,6 +986,37 @@ mod tests {
         assert_eq!(agg.best_win_streak, 1);
         assert_eq!(agg.best_loss_streak, 1);
         assert!(agg.by_team_size.iter().any(|b| b.team_size == 2));
+    }
+
+    #[test]
+    fn current_session_rotates_when_stale() {
+        let s = open_temp();
+        s.upsert_profile("Mock|1|0", "MoiPseudo").unwrap();
+        let s1 = s.current_session_id("Mock|1|0").unwrap();
+        // Forge a stale session: backdate started_at by > TIMEOUT_MS.
+        let stale_at = (now_ms() as i64) - (crate::session::Session::TIMEOUT_MS as i64) - 1_000;
+        {
+            let conn = s.conn.lock();
+            conn.execute("UPDATE sessions SET started_at = ? WHERE id = ?",
+                         params![stale_at, s1]).unwrap();
+        }
+        let s2 = s.current_session_id("Mock|1|0").unwrap();
+        assert_ne!(s1, s2, "stale session must rotate to a fresh one");
+        // The old session should now have an ended_at set.
+        let conn = s.conn.lock();
+        let ended: Option<i64> = conn
+            .query_row("SELECT ended_at FROM sessions WHERE id = ?", params![s1], |r| r.get(0))
+            .unwrap();
+        assert!(ended.is_some(), "stale session must be closed");
+    }
+
+    #[test]
+    fn current_session_keeps_active_when_fresh() {
+        let s = open_temp();
+        s.upsert_profile("Mock|1|0", "MoiPseudo").unwrap();
+        let s1 = s.current_session_id("Mock|1|0").unwrap();
+        let s2 = s.current_session_id("Mock|1|0").unwrap();
+        assert_eq!(s1, s2, "fresh session must not rotate");
     }
 
     #[test]

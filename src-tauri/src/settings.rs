@@ -37,8 +37,10 @@ pub struct Settings {
     /// In-game HUD window size, in physical pixels.
     #[serde(default)]
     pub hud_size: Option<(u32, u32)>,
-    /// Whether the in-game HUD should be opened on app start.
-    #[serde(default)]
+    /// Whether the in-game HUD should be opened on app start. Defaults to true
+    /// so the W/L counter is discoverable on first launch — users who only
+    /// want the OBS browser source can hide it from the Settings window.
+    #[serde(default = "default_true")]
     pub hud_visible: bool,
     /// When true, the HUD is click-through (cursor events pass to the game)
     /// and the drag/right-click endpoints become no-ops. Lets the user pin a
@@ -108,6 +110,17 @@ pub struct Settings {
     /// Size of the post-match HUD window, in physical pixels.
     #[serde(default)]
     pub post_match_hud_size: Option<(u32, u32)>,
+    /// Active toggle on the post-match HUD page (Tauri window AND every OBS
+    /// browser source). Stored server-side instead of per-instance
+    /// localStorage so the Tauri HUD and OBS sources always show the same
+    /// mode. Valid values: `"match"` (last match's recap) or `"session"`
+    /// (rolling aggregate). Anything else is sanitized back to `"match"`.
+    #[serde(default = "default_post_match_mode")]
+    pub post_match_hud_mode: String,
+}
+
+fn default_post_match_mode() -> String {
+    "match".into()
 }
 
 fn default_team_sizes() -> Vec<u8> {

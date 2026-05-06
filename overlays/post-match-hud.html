@@ -11,7 +11,11 @@
     <header class="pm-header">
       <span class="result-badge" id="result-badge" data-tip="Issue du match — déterminée par MatchEnded.">—</span>
       <span class="pm-score" id="score" data-tip="Score final : ton équipe — équipe adverse.">0 — 0</span>
-      <span class="pm-meta" id="meta" data-tip="Format · durée écoulée (chrono RL + countdowns + replays + podium, donc plus longue que la durée gameplay) · arène.">—</span>
+      <span class="pm-meta" id="meta" data-tip="Format · durée gameplay (chrono RL, hors replays/podium) · arène.">—</span>
+      <div class="pm-mode-toggle" role="tablist" aria-label="Vue affichée">
+        <button class="pm-mode active" data-mode="match" data-tip="Stats du dernier match." role="tab">Match</button>
+        <button class="pm-mode" data-mode="session" data-tip="Stats agrégées sur la session en cours (depuis le dernier reset ou un gap > 6h)." role="tab">Session</button>
+      </div>
       <button id="btn-close" class="pm-close" data-tip="Fermer le récap. Il réapparaîtra à la fin du prochain match." aria-label="Fermer">×</button>
     </header>
 
@@ -97,10 +101,6 @@
       Stats avancées indisponibles pour ce match (joueur local non identifié).
     </p>
   </main>
-
-  <p id="empty-state" class="empty-state hidden">
-    En attente du prochain match…
-  </p>
 
   <script type="module" src="/overlays/post-match-hud.js"></script>
 </body>
