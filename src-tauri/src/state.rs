@@ -66,6 +66,15 @@ pub struct AppState {
     /// Read at `MatchEnded` to decide whether to count the result toward the
     /// session, given the user's `settings.count_team_sizes` filter.
     pub current_team_size: AtomicU8,
+    /// True once we've ingested at least one `UpdateState` with real player
+    /// data for the current match. Distinguishes "real gameplay happened"
+    /// from "RL fired `MatchEnded` for a stub": when matchmaking opens a
+    /// lobby that immediately cancels (opponents never join), RL still
+    /// fires `MatchEnded` with a default `WinnerTeamNum=0`, which would
+    /// otherwise increment the W/L counter as a phantom loss for anyone
+    /// whose previous-match `local_team` was 1. Reset on
+    /// MatchCreated / MatchInitialized / MatchDestroyed.
+    pub match_observed: AtomicBool,
     /// True once the HUD webview has loaded its URL at least once. Prevents
     /// re-running the cache-busting reload on every show — see `toggle_hud`.
     pub hud_loaded: AtomicBool,
@@ -126,6 +135,7 @@ impl AppState {
             local_team: Mutex::new(None),
             last_counted_match: Mutex::new(None),
             current_team_size: AtomicU8::new(0),
+            match_observed: AtomicBool::new(false),
             hud_loaded: AtomicBool::new(false),
             settings_writer: OnceCell::new(),
             app_handle: OnceCell::new(),

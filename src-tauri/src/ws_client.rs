@@ -322,6 +322,10 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
         }
         "MatchInitialized" | "MatchCreated" => {
             reset_match_stats(app, state);
+            // Reset gameplay-observed flag so a cancelled lobby (opponents
+            // never join, no UpdateState ever fires) is detectable at
+            // MatchEnded — see `on_match_ended`.
+            state.match_observed.store(false, Ordering::Relaxed);
             begin_recorder(state, &data);
             // Mark the match window — drives the launcher's auto-hide and
             // the Settings auto-hide-on-match-start. Only emit on transition
@@ -337,6 +341,7 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
             // don't carry it into the next match.
             *state.recorder.lock() = None;
             reset_match_stats(app, state);
+            state.match_observed.store(false, Ordering::Relaxed);
             if state.match_in_progress.swap(false, Ordering::SeqCst) {
                 let _ = app.emit("rlstats://match-in-progress", false);
             }
@@ -456,6 +461,11 @@ fn on_update_state(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Va
         state
             .current_team_size
             .store(team_size, Ordering::Relaxed);
+        // Mark that real gameplay was observed for the current match. A
+        // cancelled lobby never reaches this branch — RL doesn't ship
+        // UpdateStates for matches that never start. `on_match_ended`
+        // checks this flag to suppress phantom W/L tally updates.
+        state.match_observed.store(true, Ordering::Relaxed);
     }
 
     // Feed the recorder with the latest tick. Local team is known from
@@ -579,6 +589,19 @@ fn on_update_state(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Va
 }
 
 fn on_match_ended(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Value) {
+    // Cancelled-lobby guard: when a public lobby opens but opponents never
+    // join, RL still fires `MatchEnded` (often with a defaulted
+    // `WinnerTeamNum=0` or a phantom forfeit-win). `local_team` may carry
+    // over from the previous real match, so the phantom result would
+    // otherwise increment the W/L tally as a fake loss. Detecting "no
+    // gameplay observed" via the absence of any UpdateState lets us
+    // distinguish stub matches from forfeits we *did* watch unfold.
+    if !state.match_observed.load(Ordering::Relaxed) {
+        info!("MatchEnded without any UpdateState — treating as cancelled lobby, skipping W/L tally and any in-flight recorder");
+        *state.recorder.lock() = None;
+        return;
+    }
+
     let team = match *state.local_team.lock() {
         Some(t) => t,
         None => return,
