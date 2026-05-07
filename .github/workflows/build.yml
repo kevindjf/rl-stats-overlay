@@ -37,8 +37,12 @@ jobs:
       - name: Install frontend deps
         run: bun install --frozen-lockfile
 
+      # On Windows we explicitly skip MSI: its bundler rejects non-numeric
+      # pre-release identifiers (e.g. `-beta.2`), and CI is just a sanity
+      # check that the app compiles + bundles. NSIS produces the same .exe
+      # users actually install. macOS keeps the default (`app` target).
       - name: Build Tauri app
-        run: bun run tauri build
+        run: bun run tauri build ${{ matrix.platform == 'windows-latest' && '--bundles nsis' || '' }}
         env:
           # Skip code-signing in CI; releases are signed locally for v1.
           TAURI_SIGNING_PRIVATE_KEY: ""
@@ -49,7 +53,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rl-stats-overlay-windows
-          path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/msi/*.msi
+          path: src-tauri/target/release/bundle/nsis/*.exe
           retention-days: 14
