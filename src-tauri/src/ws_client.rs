@@ -381,9 +381,17 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
 /// Initialize the in-progress match accumulator. The local team isn't always
 /// known from the very first MatchInitialized payload (no UpdateState yet),
 /// so it's filled in lazily as ticks arrive — see `ingest_update_state`.
+///
+/// Honors the `analytics_enabled` opt-in: when the user hasn't turned the
+/// post-match feature on we skip allocating the recorder entirely, so no
+/// rows ever land in matches.db. `set_analytics_enabled` is responsible for
+/// clearing any in-flight recorder if they toggle off mid-match.
 fn begin_recorder(state: &Arc<AppState>, data: &serde_json::Value) {
     let storage_present = state.storage.get().is_some();
     if !storage_present {
+        return;
+    }
+    if !state.settings.lock().analytics_enabled {
         return;
     }
     let guid = data
@@ -418,10 +426,14 @@ fn on_update_state(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Va
 
     // Lazy-start the recorder: in some flows (mock or RL relaunching mid-match)
     // we get UpdateState before MatchInitialized. Spin it up on first sight so
-    // we don't lose the early ticks of a match.
+    // we don't lose the early ticks of a match. Same opt-in gate as
+    // `begin_recorder` — skip allocation when analytics is disabled.
     {
         let mut rec_guard = state.recorder.lock();
-        if rec_guard.is_none() && state.storage.get().is_some() {
+        if rec_guard.is_none()
+            && state.storage.get().is_some()
+            && state.settings.lock().analytics_enabled
+        {
             let guid = data
                 .get("MatchGuid")
                 .and_then(|v| v.as_str())

@@ -88,7 +88,11 @@ pub struct Settings {
     /// recorder never runs, no rows are written to matches.db, the HUD popup
     /// stays hidden and the analytics tabs are masked. Existing history is
     /// preserved — only future matches stop being recorded.
-    #[serde(default = "default_true")]
+    ///
+    /// Defaults to `false` (opt-in): most users only care about the
+    /// W/L/streak overlay, and we don't want to surprise them with a
+    /// post-match popup or persistent SQLite writes they never asked for.
+    #[serde(default)]
     pub analytics_enabled: bool,
     /// When true, the dedicated "post-match" Tauri window pops up at MatchEnded
     /// and stays visible until the next match starts. Independent from the

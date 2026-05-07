@@ -30,10 +30,10 @@
 
 - **A live overlay of your session**: number of **wins**, **losses**, and the current **streak** (🔥 win streak, ❄️ loss streak). Numbers update on their own at the end of every match. **Visible by default on launch** — one click to hide if you only want the OBS source.
 - **Live in-match stats**: goals, saves, shots, assists — pulled in real time from the Stats API and shown in the dashboard and compatible themes.
-- **Detailed post-match recap**: at the end of every match, a dedicated window shows your full stats — average boost, BPM, time at 0/100, boost distribution, average speed, distance traveled, time on ground/aerial/wall, powerslides, demos given/taken. Also available as an OBS browser source.
+- **Detailed post-match recap** *(opt-in, off by default)*: at the end of every match, a dedicated window shows your full stats — average boost, BPM, time at 0/100, boost distribution, average speed, distance traveled, time on ground/aerial/wall, powerslides, demos given/taken. Also available as an OBS browser source. Until you enable it in settings, no match is recorded and no window pops up.
   - **Match / Session toggle**: switch between the last match's recap and the rolling session aggregate (same metrics, averaged over every match played since the last reset).
   - Closing the X on the Tauri window also blanks the OBS source in lockstep.
-- **Analytics tabs** in the settings window: History (paginated list + per-match detail), Session (W/L aggregates, averages, records), All-time (career-wide). Multi-profile selector if you've played on multiple accounts.
+- **Analytics tabs** in the settings window: History (paginated list + per-match detail), Session (W/L aggregates, averages, records), All-time (career-wide). Multi-profile selector if you've played on multiple accounts. Only appear once you enable post-match recap.
 - **Two display modes** (or both at once):
   - 🎮 **In-game HUD** — a small transparent window placed on top of Rocket League. **Edit mode** to move/resize it with the mouse (drag the middle to move, bottom-right grip to scale), turned off during play so clicks pass through to the game. **Scale slider** in settings for percent-perfect sizing. Right-click for the context menu (Reset session / Lock / Quit). Auto-scales to your monitor's DPI on first launch (1080p / 1440p / 4K / 5K+).
   - 📺 **OBS Browser Source** — URL to paste into a Browser Source for your stream.

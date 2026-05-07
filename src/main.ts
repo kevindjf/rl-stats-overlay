@@ -448,6 +448,14 @@ function mountUpdateBanner(version: string, onInstall: () => Promise<void>): voi
 function renderDashboard() {
   if (!currentState) return;
 
+  // If analytics was disabled (or the user lands on a stale persisted tab
+  // after disabling), pull them back to Settings — the analytics tabs are
+  // hidden in that state and would render orphan UI otherwise.
+  if (!currentState.analytics_enabled && activeTopTab !== "settings") {
+    activeTopTab = "settings";
+    writeTopTab("settings");
+  }
+
   if (activeTopTab !== "settings") {
     renderAnalyticsTab().catch((err) => console.error("renderAnalyticsTab failed", err));
     return;
@@ -468,7 +476,7 @@ function renderDashboard() {
         }</span>
       </header>
 
-      ${renderTopTabsBar()}
+      ${renderTopTabsBar(s)}
 
       ${renderPanel("session", t("session.title"), /* html */ `
         <div class="session">
@@ -783,10 +791,11 @@ function bindAnalyticsSettings() {
 
 // ----- Top tabs bar + analytics tab routing -------------------------------
 
-function renderTopTabsBar(): string {
-  // v1 ships with only the post-match HUD surface; analytics tabs stay
-  // hidden behind the feature flag (code is wired and ready for v2).
-  if (!FEATURE_ANALYTICS_TABS) return "";
+function renderTopTabsBar(s: StateSnapshot): string {
+  // Tabs are gated by both the build-time feature flag (v1 vs v2 readiness)
+  // and the runtime opt-in toggle: a user with analytics disabled should
+  // not see History/Session/All-time at all — only the Settings panel.
+  if (!FEATURE_ANALYTICS_TABS || !s.analytics_enabled) return "";
   const tab = (id: TopTab, label: string) =>
     `<button class="top-tab ${activeTopTab === id ? "active" : ""}" data-top-tab="${id}">${label}</button>`;
   return /* html */ `
@@ -830,7 +839,7 @@ async function renderAnalyticsTab() {
         }</span>
       </header>
 
-      ${renderTopTabsBar()}
+      ${renderTopTabsBar(s)}
 
       <div class="analytics-toolbar">
         ${profileSelectorHtml}
@@ -1082,9 +1091,10 @@ function renderAnalyticsSettingsPanel(s: StateSnapshot): string {
       </label>
     </div>
 
+    ${s.analytics_enabled ? /* html */ `
     <div class="row" style="margin-top: 14px;">
-      <label style="display:flex; align-items:flex-start; gap:8px; font-size: 13px;" ${s.analytics_enabled ? "" : 'class="dim"'}>
-        <input type="checkbox" id="pm-show-hud" ${s.show_post_match_hud ? "checked" : ""} ${s.analytics_enabled ? "" : "disabled"} />
+      <label style="display:flex; align-items:flex-start; gap:8px; font-size: 13px;">
+        <input type="checkbox" id="pm-show-hud" ${s.show_post_match_hud ? "checked" : ""} />
         <span>
           <strong>${t("postMatch.showHud")}</strong>
           <p class="muted" style="margin: 4px 0 0; font-size: 11px;">${t("postMatch.showHudHint")}</p>
@@ -1094,7 +1104,7 @@ function renderAnalyticsSettingsPanel(s: StateSnapshot): string {
 
     <div class="row" style="margin-top: 14px;">
       <label style="display:flex; align-items:flex-start; gap:8px; font-size: 13px;">
-        <input type="checkbox" id="pm-show-obs" ${s.show_post_match_obs ? "checked" : ""} ${s.analytics_enabled ? "" : "disabled"} />
+        <input type="checkbox" id="pm-show-obs" ${s.show_post_match_obs ? "checked" : ""} />
         <span>
           <strong>${t("postMatch.showObs")}</strong>
           <p class="muted" style="margin: 4px 0 0; font-size: 11px;">${t("postMatch.showObsHint")}</p>
@@ -1107,6 +1117,7 @@ function renderAnalyticsSettingsPanel(s: StateSnapshot): string {
       <button class="ghost" id="pm-open-folder">${t("postMatch.openFolder")}</button>
       <button class="ghost danger" id="pm-clear-history">${t("postMatch.clearHistory")}</button>
     </div>
+    ` : ""}
   `);
 }
 
