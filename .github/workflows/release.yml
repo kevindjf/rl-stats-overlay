@@ -52,6 +52,10 @@ jobs:
           releaseName: "RL Stats Overlay v__VERSION__"
           releaseDraft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') }}
+          # MSI's bundler rejects non-numeric pre-release identifiers
+          # (e.g. `0.2.0-beta.1`). Skip it for `-beta` / `-rc` tags and
+          # ship NSIS only — stable tags still produce both bundles.
+          args: ${{ (contains(github.ref, '-rc') || contains(github.ref, '-beta')) && '--bundles nsis,updater' || '' }}
           includeUpdaterJson: true
           releaseBody: |
             ## RL Stats Overlay ${{ github.ref_name }}
