@@ -1602,13 +1602,24 @@ pub fn run() {
                     }
                 });
             }
-            // Note: we deliberately DO NOT hide the post-match HUD window on
-            // `rlstats://match-started`. Persistent display — the previous
-            // match's recap stays visible until either (a) the user clicks the
-            // X, or (b) the next MatchEnded fires and the listener above
-            // replaces the content with the new match's stats. Felt buggy
-            // when the window vanished mid-scoreboard at the next match's
-            // countdown.
+            // Hide the post-match HUD whenever a match becomes "in progress".
+            // We tried a "persistent until clicked X or replaced" model in
+            // v0.2.0-beta.1, but in practice the always-on-top window
+            // obstructs the next match's gameplay. Listening on
+            // `rlstats://match-in-progress` (instead of `match-started`)
+            // also covers the cold-boot mid-match case: if the app starts
+            // after RL has already fired MatchInitialized, the first
+            // UpdateState bumps match_in_progress and we hide here.
+            {
+                let handle_hide = handle.clone();
+                handle.listen("rlstats://match-in-progress", move |event| {
+                    if matches!(serde_json::from_str::<bool>(event.payload()), Ok(true)) {
+                        if let Some(win) = handle_hide.get_webview_window("post_match_hud") {
+                            let _ = win.hide();
+                        }
+                    }
+                });
+            }
             // Create the post-match HUD window programmatically once the
             // embedded HTTP server is up. We deliberately do NOT declare it
             // in `tauri.conf.json` because that path tries to fetch the URL
@@ -1705,13 +1716,19 @@ pub fn run() {
                         _ => {}
                     });
                     // Cold-boot restore: re-show the window if the previous
-                    // session ended on a recorded match.
+                    // session ended on a recorded match. Skip the show if a
+                    // match is already in progress at the time the window
+                    // gets built — this races with the cold-boot mid-match
+                    // path where `on_update_state` flips `match_in_progress`
+                    // before the listener above is even reachable. Without
+                    // this guard the recap pops up while the user is mid-game.
                     let s = state_create.settings.lock();
                     let should_show = s.analytics_enabled
                         && s.show_post_match_hud
                         && s.last_match_recorded_guid.is_some();
                     drop(s);
-                    if should_show {
+                    let in_progress = state_create.match_in_progress.load(Ordering::SeqCst);
+                    if should_show && !in_progress {
                         let _ = win.show();
                     }
                 });
