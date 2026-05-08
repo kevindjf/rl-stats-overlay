@@ -439,10 +439,15 @@ fn active_primary_id(state: &Arc<AppState>) -> Result<String, Response> {
 async fn api_match_summary_latest(State(state): State<Arc<AppState>>) -> Response {
     let storage = match require_storage(&state) { Ok(s) => s, Err(r) => return r };
     let pid = match active_primary_id(&state) { Ok(p) => p, Err(r) => return r };
-    // Same dismissal flag as the Tauri HUD: when the user clicks the X on
-    // the post-match window, `post_match_hud_close` clears this. Returning
-    // 204 here makes the OBS browser source hide in lockstep on its next poll.
-    if state.settings.lock().last_match_recorded_guid.is_none() {
+    // 204 hides the OBS browser source on its next poll. Two triggers:
+    //   - User clicked the X on the Tauri HUD (`post_match_hud_close`
+    //     clears `last_match_recorded_guid`) — explicit dismissal.
+    //   - A match is in progress — the always-on-top OBS recap would
+    //     otherwise obstruct the next match's gameplay, mirroring the
+    //     Tauri-side `rlstats://match-in-progress` listener.
+    if state.settings.lock().last_match_recorded_guid.is_none()
+        || state.match_in_progress.load(Ordering::SeqCst)
+    {
         return StatusCode::NO_CONTENT.into_response();
     }
     match storage.recent_matches(&pid, 1, 0) {
@@ -471,11 +476,12 @@ async fn api_match_summary_guid(
 async fn api_session_summary(State(state): State<Arc<AppState>>) -> Response {
     let storage = match require_storage(&state) { Ok(s) => s, Err(r) => return r };
     let pid = match active_primary_id(&state) { Ok(p) => p, Err(r) => return r };
-    // Same dismissal semantics as `api_match_summary_latest`: when the user
-    // clicks the X on the post-match HUD, `post_match_hud_close` clears
-    // `last_match_recorded_guid` and we want both modes (match + session)
-    // to go transparent on OBS in lockstep.
-    if state.settings.lock().last_match_recorded_guid.is_none() {
+    // Same dismissal semantics as `api_match_summary_latest`: clic-X on the
+    // Tauri HUD or a match in progress both go 204 so OBS hides the recap
+    // (both `match` and `session` modes share this gate).
+    if state.settings.lock().last_match_recorded_guid.is_none()
+        || state.match_in_progress.load(Ordering::SeqCst)
+    {
         return StatusCode::NO_CONTENT.into_response();
     }
     let session_id = match storage.current_session_id(&pid) {
