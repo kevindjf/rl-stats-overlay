@@ -80,9 +80,29 @@ pub fn spawn(app: AppHandle, state: Arc<AppState>) {
                 if connected_at.elapsed() >= Duration::from_millis(STABLE_CONNECTION_MS) {
                     delay = RECONNECT_INITIAL_MS;
                 }
-                // RL went away mid-match — clear the match flag and notify
-                // listeners so the floating launcher comes back. Only emit
-                // on transition (avoids spam if RL crashed between matches).
+                // RL went away mid-match — persist a forensic snapshot of
+                // whatever the recorder accumulated so a subsequent boot can
+                // reconcile the result. Done before clearing match_in_progress
+                // so any listeners that gate on it see a consistent state.
+                let had_pending_match = state.recorder.lock().is_some();
+                if had_pending_match {
+                    let guid = state
+                        .recorder
+                        .lock()
+                        .as_ref()
+                        .map(|r| r.match_guid.clone())
+                        .unwrap_or_default();
+                    finalize_match(
+                        &app,
+                        &state,
+                        &guid,
+                        None,
+                        MatchEndSource::AbnormalDisconnect,
+                    );
+                }
+                // Clear the match flag and notify listeners so the floating
+                // launcher comes back. Only emit on transition (avoids spam
+                // if RL crashed between matches).
                 if state.match_in_progress.swap(false, Ordering::SeqCst) {
                     let _ = app.emit("rlstats://match-in-progress", false);
                 }
@@ -339,9 +359,25 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
             let _ = app.emit("rlstats://match-started", ());
         }
         "MatchDestroyed" => {
-            // Defensive: if MatchEnded never fired (RL crash mid-match), the
-            // recorder never finalized. Discard whatever's in progress so we
-            // don't carry it into the next match.
+            // Backup MatchEnded path: if RL never fired MatchEnded for this
+            // match (forfeit-leave, post-game leave before the whistle, RL
+            // bug), the recorder is still `Some` here. Run the same finalize
+            // flow as MatchEnded with `api_winner=None` so the score-fallback
+            // can still resolve a result. Idempotent vs. a real MatchEnded
+            // that already fired: `last_counted_match` will short-circuit on
+            // the second call.
+            let has_pending = state.recorder.lock().is_some();
+            if has_pending {
+                let guid = data
+                    .get("MatchGuid")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                finalize_match(app, state, &guid, None, MatchEndSource::MatchDestroyedBackup);
+            }
+            // Defensive cleanup — finalize_match already drops the recorder
+            // on every path, but a subsequent MatchInitialized would also
+            // overwrite it, so this just makes the intermediate state explicit.
             *state.recorder.lock() = None;
             reset_match_stats(app, state);
             // Same rationale as MatchInitialized — clear the stale team so
@@ -598,7 +634,59 @@ fn on_update_state(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Va
     }
 }
 
+/// Score-based winner inference, used when `MatchEnded` arrives without a
+/// `WinnerTeamNum` (forfeits, abandons, host-DC handicap losses) or when
+/// the WS connection died mid-match. Returns `None` for ties — including
+/// 0-0 (no UpdateState ever propagated, can't tell a real tie from a stub
+/// lobby) — so the caller still has a clear signal to skip the tally.
+fn derive_winner_from_scores(team_scores: [u32; 2]) -> Option<i32> {
+    if team_scores[0] == team_scores[1] {
+        return None;
+    }
+    Some(if team_scores[0] > team_scores[1] { 0 } else { 1 })
+}
+
 fn on_match_ended(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Value) {
+    let guid = data
+        .get("MatchGuid")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let api_winner: Option<i32> = data
+        .get("WinnerTeamNum")
+        .and_then(|v| v.as_i64())
+        .map(|w| w as i32);
+    finalize_match(app, state, &guid, api_winner, MatchEndSource::MatchEnded);
+}
+
+/// Where the finalize call originated. Affects logging only — the tally /
+/// persistence logic is identical so a backup call from `MatchDestroyed`
+/// produces the same on-disk record as the primary `MatchEnded` would.
+#[derive(Debug, Clone, Copy)]
+enum MatchEndSource {
+    /// Primary path: RL fired `MatchEnded` cleanly.
+    MatchEnded,
+    /// Backup path: `MatchDestroyed` arrived while a recorder was still in
+    /// flight (no MatchEnded ever fired, e.g. forfeit-leave). Last-ditch
+    /// chance to count the result — relies on the score fallback.
+    MatchDestroyedBackup,
+    /// Backup path: WS connection died mid-match. Persists a forensic record
+    /// for boot-time reconciliation; the session counter is intentionally
+    /// not touched to avoid double-counting if RL reconnects with a delayed
+    /// MatchEnded for the same GUID.
+    AbnormalDisconnect,
+}
+
+/// The shared end-of-match flow used by both MatchEnded and the backup
+/// MatchDestroyed/abnormal-disconnect paths. Idempotent on the same
+/// `match_guid` thanks to `state.last_counted_match`.
+fn finalize_match(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    guid: &str,
+    api_winner: Option<i32>,
+    source: MatchEndSource,
+) {
     // Cancelled-lobby guard: `local_team` is reset to None on every
     // MatchInitialized / MatchCreated / MatchDestroyed and only set again
     // when an UpdateState identifies the local player. If it's still None
@@ -610,21 +698,57 @@ fn on_match_ended(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Val
     let team = match *state.local_team.lock() {
         Some(t) => t,
         None => {
-            info!("MatchEnded with no local_team identified — likely cancelled lobby or app booted after match end, skipping W/L tally");
+            info!(
+                event = "match_skip",
+                reason = "local_team_unknown",
+                source = ?source,
+                match_guid = guid,
+                "skipping W/L tally — likely cancelled lobby or cold-boot mid-end"
+            );
             *state.recorder.lock() = None;
             return;
         }
     };
-    // RL sometimes ships MatchEnded without a WinnerTeamNum — typically on
-    // forfeits, host disconnects, or other unclean exits. Record the match
-    // anyway (so the user's history isn't full of holes) but skip the W/L
-    // tally update since we genuinely don't know the result.
-    let winner: Option<i32> = data
-        .get("WinnerTeamNum")
-        .and_then(|v| v.as_i64())
-        .map(|w| w as i32);
-    if winner.is_none() {
-        warn!("MatchEnded without WinnerTeamNum — persisting with unknown result, session counter not updated");
+
+    // Score-fallback: RL sometimes ships MatchEnded without a WinnerTeamNum
+    // (forfeits, host disconnects, mate-left handicap auto-loss). Derive the
+    // winner from the latest UpdateState's team_scores when the API stays
+    // silent and the scores aren't a tie. For abnormal disconnects we apply
+    // the same logic so the persisted record carries an actionable result.
+    let team_scores = state.match_stats.lock().team_scores;
+    let derived_winner: Option<i32> = if api_winner.is_some() {
+        None
+    } else {
+        derive_winner_from_scores(team_scores)
+    };
+    let winner: Option<i32> = api_winner.or(derived_winner);
+    let result_source: &str = match (api_winner.is_some(), derived_winner.is_some(), source) {
+        (true, _, _) => "api",
+        (false, true, _) => "score-fallback",
+        (false, false, MatchEndSource::AbnormalDisconnect) => "abnormal-disconnect",
+        (false, false, _) => "unknown",
+    };
+    if api_winner.is_none() {
+        if let Some(w) = derived_winner {
+            info!(
+                event = "winner_derived",
+                source = ?source,
+                match_guid = guid,
+                derived = w,
+                blue = team_scores[0],
+                orange = team_scores[1],
+                "WinnerTeamNum absent — derived winner from last UpdateState team scores"
+            );
+        } else {
+            warn!(
+                event = "winner_unknown",
+                source = ?source,
+                match_guid = guid,
+                blue = team_scores[0],
+                orange = team_scores[1],
+                "MatchEnded without WinnerTeamNum and team scores tied — session counter not updated"
+            );
+        }
     }
 
     // Match-size filter — let the user count only e.g. 3v3s. team_size == 0
@@ -635,51 +759,102 @@ fn on_match_ended(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Val
     if team_size != 0 {
         let allowed = state.settings.lock().count_team_sizes.clone();
         if !allowed.contains(&team_size) {
-            info!(team_size, "match excluded by team-size filter");
+            info!(
+                event = "match_skip",
+                reason = "team_size_filter",
+                source = ?source,
+                match_guid = guid,
+                team_size,
+                "match excluded by team-size filter"
+            );
             return;
         }
     }
 
-    // Avoid double-counting if the same MatchEnded event ever replays.
-    let guid = data
-        .get("MatchGuid")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
+    // Avoid double-counting: any prior path (MatchEnded, MatchDestroyed
+    // backup, abnormal-disconnect persistence) that already counted this
+    // GUID claims it via `last_counted_match`. The same GUID landing again
+    // through a different route is a no-op.
     {
         let mut last = state.last_counted_match.lock();
-        if !guid.is_empty() && last.as_deref() == Some(guid.as_str()) {
+        if !guid.is_empty() && last.as_deref() == Some(guid) {
+            info!(
+                event = "match_skip",
+                reason = "dedup_replay",
+                source = ?source,
+                match_guid = guid,
+                "match already counted via prior path"
+            );
+            // Recorder may still be Some on the dedup path (e.g. backup
+            // path racing a primary). Drop it so the next match starts clean.
+            *state.recorder.lock() = None;
             return;
         }
         if !guid.is_empty() {
-            *last = Some(guid);
+            *last = Some(guid.to_string());
         }
     }
 
-    // Dev mock mode: when the source identified itself via a `MockHandshake`
-    // event on connect, swallow session counter updates so testing matches
-    // don't pollute the user's real W/L tally. Storage / post-match HUD path
-    // below still runs so those features remain testable. The flag resets
-    // automatically on the next reconnect, so flipping back to the real RL
-    // game restores normal behavior without restarting Tauri.
+    // Tally the W/L counter. Skip cases:
+    //   * mock source — dev mock-server's matches must not pollute the real
+    //     session, but we still persist to matches.db below so the post-match
+    //     HUD remains exercisable from the mock.
+    //   * `winner` is None — both API and score-fallback came up empty
+    //     (cancelled lobby that somehow had local_team set, or 0-0 tie).
+    //   * `AbnormalDisconnect` source — record the forensic snapshot but
+    //     don't tally yet; if RL reconnects with a delayed MatchEnded for
+    //     this GUID, the dedup guard handles it. If it never does, the
+    //     boot-time reconciliation against matches.db will pick the result up.
     let mock_mode = state.mock_source.load(Ordering::Relaxed);
+    let counts_session = !mock_mode
+        && winner.is_some()
+        && !matches!(source, MatchEndSource::AbnormalDisconnect);
     if mock_mode {
-        info!("mock source connected → skipping session counter update");
-    } else if let Some(winner) = winner {
-        {
-            let mut session = state.session.lock();
-            if winner == team {
-                session.record_win();
-            } else {
-                session.record_loss();
+        info!(
+            event = "match_skip",
+            reason = "mock_source",
+            source = ?source,
+            match_guid = guid,
+            "mock source connected → not touching real session counter"
+        );
+    } else if winner.is_none() {
+        // Already logged above with reason=winner_unknown. Nothing to add here.
+    } else if matches!(source, MatchEndSource::AbnormalDisconnect) {
+        info!(
+            event = "match_skip",
+            reason = "abnormal_disconnect_no_tally",
+            source = ?source,
+            match_guid = guid,
+            "WS died mid-match — persisting forensic record only, boot reconciliation will tally"
+        );
+    }
+    if counts_session {
+        if let Some(winner) = winner {
+            {
+                let mut session = state.session.lock();
+                if winner == team {
+                    session.record_win();
+                } else {
+                    session.record_loss();
+                }
+                let snapshot = session.clone();
+                let mut settings = state.settings.lock();
+                settings.session = snapshot;
             }
-            // Mirror to settings so the value survives a restart.
-            let snapshot = session.clone();
-            let mut settings = state.settings.lock();
-            settings.session = snapshot;
+            state.request_save_settings();
+            let _ = app.emit("rlstats://session-changed", ());
+            info!(
+                event = "match_counted",
+                source = ?source,
+                match_guid = guid,
+                team,
+                winner,
+                blue = team_scores[0],
+                orange = team_scores[1],
+                result_source,
+                "session counter updated"
+            );
         }
-        state.request_save_settings();
-        let _ = app.emit("rlstats://session-changed", ());
     }
 
     // Finalize and persist the recorder, if any. Done after the W/L tally so
@@ -697,7 +872,13 @@ fn on_match_ended(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Val
             rec.local_primary_id = state.settings.lock().primary_id.clone();
         }
         if rec.local_primary_id.is_empty() {
-            warn!("primary_id still unknown at MatchEnded — skipping persistence");
+            warn!(
+                event = "match_skip",
+                reason = "primary_id_unknown",
+                source = ?source,
+                match_guid = guid,
+                "primary_id still unknown — skipping persistence"
+            );
             return;
         }
         let record = rec.finalize(winner.map(|w| w as u8));
@@ -990,6 +1171,31 @@ mod tests {
             let j = jittered(1000);
             assert!(j >= 800 && j <= 1200, "jitter out of range: {j}");
         }
+    }
+
+    /// Score-fallback decision matrix. Captures the design intent:
+    ///   - tied scores (including 0-0) → None (caller skips tally)
+    ///   - blue ahead → team 0 wins
+    ///   - orange ahead → team 1 wins
+    /// 0-0 is intentionally treated like any other tie: a forfeit whose
+    /// scores never propagated is indistinguishable from a cancelled lobby
+    /// here, and we'd rather miss a tally than fabricate a phantom loss.
+    #[test]
+    fn score_fallback_returns_none_on_ties() {
+        assert_eq!(derive_winner_from_scores([0, 0]), None);
+        assert_eq!(derive_winner_from_scores([3, 3]), None);
+        assert_eq!(derive_winner_from_scores([7, 7]), None);
+    }
+
+    #[test]
+    fn score_fallback_picks_higher_team() {
+        // Forfeit scenario: blue won 4-1 with the API silent on WinnerTeamNum.
+        assert_eq!(derive_winner_from_scores([4, 1]), Some(0));
+        // Mate-left handicap loss: orange ran away.
+        assert_eq!(derive_winner_from_scores([0, 5]), Some(1));
+        // One-goal forfeit: still resolvable, no tie protection trips.
+        assert_eq!(derive_winner_from_scores([2, 1]), Some(0));
+        assert_eq!(derive_winner_from_scores([1, 2]), Some(1));
     }
 
     #[test]

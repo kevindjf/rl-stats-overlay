@@ -194,3 +194,16 @@ pub struct AggregateStats {
     pub worst_match_guid: Option<String>,
     pub started_at_ms: Option<i64>,
 }
+
+/// Slim session counters straight from `matches.db`, used at boot to
+/// reconcile against `settings.session` when the in-memory tally has fallen
+/// behind (e.g. an earlier version silently dropped a forfeit).
+#[derive(Debug, Clone)]
+pub struct SessionTally {
+    pub wins: u32,
+    pub losses: u32,
+    /// Win/loss outcomes for the active session, oldest first. Used to
+    /// recompute `current_streak`, `best_win_streak`, `best_loss_streak`
+    /// when reconciliation adopts the SQL totals.
+    pub outcomes: Vec<bool>,
+}

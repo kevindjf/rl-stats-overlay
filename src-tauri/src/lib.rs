@@ -1351,6 +1351,52 @@ pub fn run() {
         },
         Err(err) => warn!(?err, "could not resolve settings dir for matches.db"),
     }
+    // Boot-time session reconciliation: matches.db is the canonical record
+    // of every result we ever finalized; settings.session is the in-memory
+    // tally that may have silently fallen behind in older versions when
+    // MatchEnded shipped without a WinnerTeamNum (forfeits, host disconnects).
+    // If SQL has strictly more matches than settings, adopt SQL totals and
+    // recompute streaks. We only ever reconcile UP — a user who deleted
+    // history must keep their lower numbers.
+    if let Some(storage) = app_state.storage.get() {
+        let primary_id = app_state.settings.lock().primary_id.clone();
+        match storage.session_tally(&primary_id) {
+            Ok(Some(tally)) => {
+                let mut settings = app_state.settings.lock();
+                let prev_total = settings.session.wins + settings.session.losses;
+                let sql_total = tally.wins + tally.losses;
+                if sql_total > prev_total {
+                    let (current_streak, best_win, best_loss) =
+                        storage::compute_streaks(&tally.outcomes);
+                    info!(
+                        event = "session_reconciled",
+                        prev_wins = settings.session.wins,
+                        prev_losses = settings.session.losses,
+                        new_wins = tally.wins,
+                        new_losses = tally.losses,
+                        "settings.session was behind matches.db — adopting SQL totals"
+                    );
+                    settings.session.wins = tally.wins;
+                    settings.session.losses = tally.losses;
+                    settings.session.streak = current_streak;
+                    if best_win > settings.session.best_win_streak {
+                        settings.session.best_win_streak = best_win;
+                    }
+                    if best_loss > settings.session.best_loss_streak {
+                        settings.session.best_loss_streak = best_loss;
+                    }
+                    let snapshot = settings.session.clone();
+                    drop(settings);
+                    *app_state.session.lock() = snapshot;
+                    if let Err(err) = app_state.settings.lock().save() {
+                        warn!(?err, "failed to persist reconciled session at boot");
+                    }
+                }
+            }
+            Ok(None) => {} // no active session yet, nothing to reconcile.
+            Err(err) => warn!(?err, "session_tally probe failed at boot"),
+        }
+    }
     // Apply `--no-auto-install` to shared state so the wizard frontend can
     // read it via `StateSnapshot::no_auto_install`.
     app_state.no_auto_install.store(cli.no_auto_install, Ordering::SeqCst);

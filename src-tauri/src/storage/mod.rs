@@ -724,6 +724,72 @@ impl Storage {
             as u32)
     }
 
+    /// Slim session-tally probe for boot-time reconciliation against
+    /// `settings.session`. Returns `(wins, losses, outcomes_oldest_first)`
+    /// for matches in the active session of this profile. Outcomes feed into
+    /// streak recomputation when reconciliation decides to adopt SQL totals.
+    ///
+    /// Differs from [`Self::aggregate`]: no joins onto `match_players`, no
+    /// AVG/SUM, no per-team-size breakdown — three small SELECTs only. Boot
+    /// is single-threaded and we don't want a DB scan to slow it down.
+    ///
+    /// Returns `Ok(None)` when `primary_id` is empty, when the active session
+    /// has no matches yet, or when no session row exists yet (fresh install).
+    pub fn session_tally(&self, primary_id: &str) -> Result<Option<SessionTally>> {
+        if primary_id.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.conn.lock();
+        // Find the most recent active session WITHOUT side effects (don't
+        // create or close anything — we may be in a stale window where the
+        // user hasn't acted yet, and the rotation logic in
+        // `current_session_id` belongs to the write paths).
+        let session_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM sessions WHERE primary_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1",
+                params![primary_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .context("looking up active session for tally")?;
+        let sid = match session_id {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+        let (wins, losses): (u32, u32) = conn
+            .query_row(
+                r#"SELECT
+                    SUM(CASE WHEN is_win=1 AND winner_team_num IS NOT NULL THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN is_win=0 AND winner_team_num IS NOT NULL THEN 1 ELSE 0 END)
+                FROM matches
+                WHERE primary_id = ? AND session_id = ?"#,
+                params![primary_id, sid],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<i64>>(0)?.unwrap_or(0).max(0) as u32,
+                        row.get::<_, Option<i64>>(1)?.unwrap_or(0).max(0) as u32,
+                    ))
+                },
+            )
+            .context("aggregating session w/l tally")?;
+        if wins == 0 && losses == 0 {
+            return Ok(None);
+        }
+        // Outcomes oldest-first so streak computation matches the in-memory
+        // semantics. Skip rows where the result is unknown (no winner set).
+        let mut stmt = conn.prepare(
+            r#"SELECT is_win FROM matches
+               WHERE primary_id = ? AND session_id = ? AND winner_team_num IS NOT NULL
+               ORDER BY ended_at ASC"#,
+        )?;
+        let outcomes: Vec<bool> = stmt
+            .query_map(params![primary_id, sid], |row| {
+                Ok(row.get::<_, i64>(0)? != 0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(Some(SessionTally { wins, losses, outcomes }))
+    }
+
     /// Wipe every match, goal, statfeed, profile and session record. Schema
     /// stays — only the data goes. Used by the "Clear all history" button.
     pub fn clear_all(&self) -> Result<()> {
@@ -832,7 +898,7 @@ fn row_to_player(row: &Row<'_>) -> rusqlite::Result<MatchPlayerRecord> {
     })
 }
 
-fn compute_streaks(outcomes: &[bool]) -> (i32, u32, u32) {
+pub fn compute_streaks(outcomes: &[bool]) -> (i32, u32, u32) {
     if outcomes.is_empty() {
         return (0, 0, 0);
     }
@@ -1038,6 +1104,62 @@ mod tests {
         s.delete_match("M1").unwrap();
         assert!(s.match_detail("M1").unwrap().is_none());
         assert_eq!(s.count_matches().unwrap(), 0);
+    }
+
+    /// Boot reconciliation precondition: `session_tally` must return SQL
+    /// counters scoped to the active session, with outcomes oldest-first so
+    /// `compute_streaks` agrees with the in-memory `Session::record_*` flow.
+    #[test]
+    fn session_tally_returns_active_session_counters() {
+        let s = open_temp();
+        s.upsert_profile("Mock|1|0", "MoiPseudo").unwrap();
+        // 3 wins, 2 losses, ordered W L W L W (oldest first).
+        let outcomes = [true, false, true, false, true];
+        for (i, win) in outcomes.iter().enumerate() {
+            let mut rec = fixture_record(&format!("M{}", i), *win);
+            rec.started_at_ms = 1000 + i as i64;
+            rec.ended_at_ms = 1100 + i as i64;
+            s.record_match(&rec).unwrap();
+        }
+        let tally = s.session_tally("Mock|1|0").unwrap().expect("active session");
+        assert_eq!(tally.wins, 3);
+        assert_eq!(tally.losses, 2);
+        assert_eq!(tally.outcomes, outcomes);
+        let (current, best_w, best_l) = compute_streaks(&tally.outcomes);
+        assert_eq!(current, 1, "last match was a win");
+        assert_eq!(best_w, 1);
+        assert_eq!(best_l, 1);
+    }
+
+    /// Empty profile (no recorded matches) returns None — the caller must
+    /// treat this as "nothing to reconcile" and leave settings.session alone.
+    #[test]
+    fn session_tally_empty_profile_returns_none() {
+        let s = open_temp();
+        s.upsert_profile("Mock|1|0", "MoiPseudo").unwrap();
+        assert!(s.session_tally("Mock|1|0").unwrap().is_none());
+        assert!(s.session_tally("").unwrap().is_none());
+    }
+
+    /// Records with `winner_team_num=NULL` must NOT count toward the tally.
+    /// They're forensic snapshots from abnormal-disconnect or pre-fix-1
+    /// captures — counting them would risk fabricating losses on truly
+    /// ambiguous results.
+    #[test]
+    fn session_tally_ignores_unknown_winner_rows() {
+        let s = open_temp();
+        s.upsert_profile("Mock|1|0", "MoiPseudo").unwrap();
+        // Two real wins + one ambiguous record.
+        s.record_match(&fixture_record("M1", true)).unwrap();
+        s.record_match(&fixture_record("M2", true)).unwrap();
+        let mut ambiguous = fixture_record("M3", false);
+        ambiguous.winner_team_num = None;
+        ambiguous.is_win = false;
+        s.record_match(&ambiguous).unwrap();
+        let tally = s.session_tally("Mock|1|0").unwrap().expect("active session");
+        assert_eq!(tally.wins, 2);
+        assert_eq!(tally.losses, 0);
+        assert_eq!(tally.outcomes.len(), 2);
     }
 
     #[test]
