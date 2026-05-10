@@ -413,6 +413,15 @@ fn set_analytics_enabled(
         if let Some(win) = app.get_webview_window("post_match_hud") {
             let _ = win.hide();
         }
+        // Forget the last recorded match so re-enabling analytics later
+        // (or toggling the post-match HUD setting back on) doesn't replay
+        // a stale recap from before the user opted out.
+        let mut s = state.settings.lock();
+        if s.last_match_recorded_guid.is_some() {
+            s.last_match_recorded_guid = None;
+            drop(s);
+            state.request_save_settings();
+        }
     }
     Ok(())
 }
@@ -425,9 +434,25 @@ fn set_show_post_match_hud(
 ) -> Result<(), String> {
     state.settings.lock().show_post_match_hud = enabled;
     state.request_save_settings();
-    if !enabled {
-        if let Some(win) = app.get_webview_window("post_match_hud") {
+    if let Some(win) = app.get_webview_window("post_match_hud") {
+        if !enabled {
             let _ = win.hide();
+        } else {
+            // Symmetric re-show: when the user re-enables the post-match
+            // HUD between matches AND a recap from the current run is
+            // available, surface it immediately. Skip when a match is in
+            // progress (would obstruct gameplay) or no recap exists yet.
+            let s = state.settings.lock();
+            let can_show = s.analytics_enabled
+                && s.last_match_recorded_guid.is_some()
+                && !state.match_in_progress.load(Ordering::SeqCst);
+            drop(s);
+            if can_show {
+                let _ = win.eval(
+                    "window.location.href = window.location.pathname + '?from=tauri&t=' + Date.now()"
+                );
+                let _ = win.show();
+            }
         }
     }
     Ok(())
@@ -1632,6 +1657,16 @@ pub fn run() {
                         drop(s);
                         state_listen.request_save_settings();
                     }
+                    // Race-guard: by the time the DB write finishes (it ran
+                    // off-thread via spawn_blocking), the *next* match may
+                    // already have started. Re-check `match_in_progress` and
+                    // skip the show — the persisted guid above ensures the
+                    // recap is the right one once the user manually opens it
+                    // or the next post-match toggle exposes it. Without this
+                    // check the always-on-top window pops over live gameplay.
+                    if state_listen.match_in_progress.load(Ordering::SeqCst) {
+                        return;
+                    }
                     if let Some(win) = handle_listen.get_webview_window("post_match_hud") {
                         if let Some((x, y)) = state_listen.settings.lock().post_match_hud_pos {
                             let _ = win.set_position(PhysicalPosition::new(x, y));
@@ -1640,9 +1675,12 @@ pub fn run() {
                             let _ = win.set_size(PhysicalSize::new(w, h));
                         }
                         // Cache-bust so the page re-fetches /api/match-summary/latest
-                        // and reflects the freshly committed match.
+                        // and reflects the freshly committed match. Preserve
+                        // the `?from=tauri` marker so the JS keeps tagging API
+                        // requests as Tauri-side and the visibility gate doesn't
+                        // mistake the Tauri window for an OBS browser source.
                         let _ = win.eval(
-                            "window.location.href = window.location.pathname + '?t=' + Date.now()"
+                            "window.location.href = window.location.pathname + '?from=tauri&t=' + Date.now()"
                         );
                         let _ = win.show();
                     }
@@ -1761,22 +1799,19 @@ pub fn run() {
                         }
                         _ => {}
                     });
-                    // Cold-boot restore: re-show the window if the previous
-                    // session ended on a recorded match. Skip the show if a
-                    // match is already in progress at the time the window
-                    // gets built — this races with the cold-boot mid-match
-                    // path where `on_update_state` flips `match_in_progress`
-                    // before the listener above is even reachable. Without
-                    // this guard the recap pops up while the user is mid-game.
-                    let s = state_create.settings.lock();
-                    let should_show = s.analytics_enabled
-                        && s.show_post_match_hud
-                        && s.last_match_recorded_guid.is_some();
-                    drop(s);
-                    let in_progress = state_create.match_in_progress.load(Ordering::SeqCst);
-                    if should_show && !in_progress {
-                        let _ = win.show();
-                    }
+                    // The window stays hidden at cold boot — even when a
+                    // `last_match_recorded_guid` is persisted from a prior
+                    // run. Earlier versions auto-popped the recap from the
+                    // previous run on every launch, which made yesterday's
+                    // last match flash on screen the next morning AND raced
+                    // with the cold-boot mid-match path (UpdateState arriving
+                    // milliseconds after this guard read `match_in_progress`).
+                    // The recap is now strictly tied to "a match just
+                    // finished in *this* run" — driven by the
+                    // `rlstats://match-recorded` listener. The settings'
+                    // `last_match_recorded_guid` still seeds the OBS HTTP
+                    // endpoints if the user explicitly toggles the post-match
+                    // surface back on.
                 });
             }
 

@@ -884,6 +884,21 @@ fn finalize_match(
         let record = rec.finalize(winner.map(|w| w as u8));
         let guid_for_event = record.match_guid.clone();
         let app_clone = app.clone();
+        // Decide whether the persisted match should also raise the post-match
+        // HUD. We always persist (matches.db is the canonical record), but
+        // suppress the UI flash for matches the user shouldn't be invited to
+        // review:
+        //   * `AbnormalDisconnect` is a forensic-only snapshot — boot
+        //     reconciliation will tally the result on a future restart, but
+        //     popping a "summary" of a half-finished match while the user is
+        //     watching is misleading.
+        //   * 0-0 with no API winner is a stub-lobby finalize: nothing to
+        //     review. The local_team guard above catches the most common
+        //     case (no UpdateState ever set local_team), but a lobby that
+        //     received exactly one UpdateState before being torn down still
+        //     reaches here.
+        let suppress_ui_emit = matches!(source, MatchEndSource::AbnormalDisconnect)
+            || (winner.is_none() && team_scores == [0, 0]);
         // Run the write off the WS read task to avoid stalling on disk I/O.
         tauri::async_runtime::spawn(async move {
             let result = tauri::async_runtime::spawn_blocking(move || {
@@ -892,7 +907,9 @@ fn finalize_match(
             .await;
             match result {
                 Ok(Ok(())) => {
-                    let _ = app_clone.emit("rlstats://match-recorded", &guid_for_event);
+                    if !suppress_ui_emit {
+                        let _ = app_clone.emit("rlstats://match-recorded", &guid_for_event);
+                    }
                 }
                 Ok(Err(err)) => warn!(?err, "failed to persist match record"),
                 Err(err) => warn!(?err, "spawn_blocking failed for record_match"),

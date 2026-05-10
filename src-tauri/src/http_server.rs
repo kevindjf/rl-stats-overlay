@@ -436,18 +436,14 @@ fn active_primary_id(state: &Arc<AppState>) -> Result<String, Response> {
     Ok(pid)
 }
 
-async fn api_match_summary_latest(State(state): State<Arc<AppState>>) -> Response {
+async fn api_match_summary_latest(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
     let storage = match require_storage(&state) { Ok(s) => s, Err(r) => return r };
     let pid = match active_primary_id(&state) { Ok(p) => p, Err(r) => return r };
-    // 204 hides the OBS browser source on its next poll. Two triggers:
-    //   - User clicked the X on the Tauri HUD (`post_match_hud_close`
-    //     clears `last_match_recorded_guid`) — explicit dismissal.
-    //   - A match is in progress — the always-on-top OBS recap would
-    //     otherwise obstruct the next match's gameplay, mirroring the
-    //     Tauri-side `rlstats://match-in-progress` listener.
-    if state.settings.lock().last_match_recorded_guid.is_none()
-        || state.match_in_progress.load(Ordering::SeqCst)
-    {
+    let from_tauri = q.get("from").map(|v| v == "tauri").unwrap_or(false);
+    if post_match_should_204(&state, from_tauri) {
         return StatusCode::NO_CONTENT.into_response();
     }
     match storage.recent_matches(&pid, 1, 0) {
@@ -459,6 +455,33 @@ async fn api_match_summary_latest(State(state): State<Arc<AppState>>) -> Respons
         },
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     }
+}
+
+/// Centralised post-match HUD visibility gate, shared by the two endpoints
+/// that feed the page (`/api/match-summary/latest` and `/api/session-summary`).
+/// Returns true → caller must answer 204 so the page hides itself.
+///
+/// The gate honours the user's stated rule "OBS mirrors Tauri":
+///   * `show_post_match_hud=false` hides BOTH surfaces (master toggle).
+///   * `show_post_match_obs=false` hides ONLY the OBS surface — the Tauri
+///     window keeps showing because it's the source of truth the user is
+///     actively interacting with.
+/// Tauri-side requests carry `?from=tauri`; OBS-side requests don't (the
+/// Tauri window's URL bakes the marker, the page propagates it onto every
+/// fetch).
+fn post_match_should_204(state: &Arc<AppState>, from_tauri: bool) -> bool {
+    let s = state.settings.lock();
+    if s.last_match_recorded_guid.is_none() {
+        return true;
+    }
+    if !s.show_post_match_hud {
+        return true;
+    }
+    if !from_tauri && !s.show_post_match_obs {
+        return true;
+    }
+    drop(s);
+    state.match_in_progress.load(Ordering::SeqCst)
 }
 
 async fn api_match_summary_guid(
@@ -473,15 +496,14 @@ async fn api_match_summary_guid(
     }
 }
 
-async fn api_session_summary(State(state): State<Arc<AppState>>) -> Response {
+async fn api_session_summary(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
     let storage = match require_storage(&state) { Ok(s) => s, Err(r) => return r };
     let pid = match active_primary_id(&state) { Ok(p) => p, Err(r) => return r };
-    // Same dismissal semantics as `api_match_summary_latest`: clic-X on the
-    // Tauri HUD or a match in progress both go 204 so OBS hides the recap
-    // (both `match` and `session` modes share this gate).
-    if state.settings.lock().last_match_recorded_guid.is_none()
-        || state.match_in_progress.load(Ordering::SeqCst)
-    {
+    let from_tauri = q.get("from").map(|v| v == "tauri").unwrap_or(false);
+    if post_match_should_204(&state, from_tauri) {
         return StatusCode::NO_CONTENT.into_response();
     }
     let session_id = match storage.current_session_id(&pid) {
@@ -522,15 +544,49 @@ async fn serve_post_match_hud_page(
         headers.insert(header::CACHE_CONTROL, "no-store, must-revalidate".parse().unwrap());
         return (headers, body).into_response();
     }
+    let initial_mode = if matches!(s.post_match_hud_mode.as_str(), "session") {
+        "session"
+    } else {
+        "match"
+    };
     drop(s);
     let bytes = match read_overlay_asset("post-match-hud.html") {
         Some(b) => b,
         None => return (StatusCode::NOT_FOUND, "post-match-hud.html missing").into_response(),
     };
+    // Inject the persisted post-match-hud mode straight into the HTML so the
+    // toggle's "active" tab matches reality on the very first paint, instead
+    // of flashing the hard-coded "Match" tab for ~2s while the first
+    // /api/state poll lands. The marker is a tiny inline <script> placed
+    // before the module script — the JS reads `window.__INITIAL_POST_MATCH_MODE__`
+    // when initialising its local `mode` variable. Falls back gracefully if
+    // injection fails (string match miss): the page still works, just with
+    // the existing flicker.
+    let injected = inject_initial_mode(&bytes, initial_mode);
+    let body = injected.unwrap_or(bytes);
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, "text/html; charset=utf-8".parse().unwrap());
     headers.insert(header::CACHE_CONTROL, "no-store, must-revalidate".parse().unwrap());
-    (headers, bytes).into_response()
+    (headers, body).into_response()
+}
+
+/// Splice an inline script setting `window.__INITIAL_POST_MATCH_MODE__`
+/// immediately before the page's module script. Returns `None` if the
+/// expected anchor isn't found — the caller falls back to the unmodified
+/// bytes so the page still loads, just without the flicker fix.
+fn inject_initial_mode(html: &[u8], mode: &str) -> Option<Vec<u8>> {
+    let html_str = std::str::from_utf8(html).ok()?;
+    let anchor = "<script type=\"module\"";
+    let idx = html_str.find(anchor)?;
+    let snippet = format!(
+        "<script>window.__INITIAL_POST_MATCH_MODE__ = {:?};</script>\n  ",
+        mode
+    );
+    let mut out = Vec::with_capacity(html.len() + snippet.len());
+    out.extend_from_slice(&html[..idx]);
+    out.extend_from_slice(snippet.as_bytes());
+    out.extend_from_slice(&html[idx..]);
+    Some(out)
 }
 
 async fn serve_overlay(AxumPath(path): AxumPath<String>) -> Response {
@@ -581,4 +637,43 @@ fn read_overlay_asset(rel: &str) -> Option<Vec<u8>> {
         return None;
     }
     std::fs::read(canonical_target).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The mode marker must land **before** the page's module script so the
+    /// global is visible when the JS reads `window.__INITIAL_POST_MATCH_MODE__`
+    /// during its top-level initialisation. The injected snippet must also
+    /// quote the mode safely so a malicious or misconfigured value can't
+    /// escape the `<script>` block.
+    #[test]
+    fn injects_match_mode_before_module_script() {
+        let html = b"<html><head></head><body><script type=\"module\" src=\"/post-match-hud.js\"></script></body></html>";
+        let out = inject_initial_mode(html, "match").expect("anchor present");
+        let s = std::str::from_utf8(&out).unwrap();
+        let injected_at = s.find("__INITIAL_POST_MATCH_MODE__").unwrap();
+        let module_at = s.find("type=\"module\"").unwrap();
+        assert!(injected_at < module_at, "marker must precede the module tag");
+        assert!(s.contains("\"match\""));
+    }
+
+    #[test]
+    fn injects_session_mode_when_persisted() {
+        let html = b"<html><body><script type=\"module\" src=\"/x\"></script></body></html>";
+        let out = inject_initial_mode(html, "session").unwrap();
+        let s = std::str::from_utf8(&out).unwrap();
+        assert!(s.contains("\"session\""));
+        assert!(!s.contains("\"match\""));
+    }
+
+    /// If we ever rename the JS asset and forget to update the anchor, the
+    /// page must still load — the polling loop will catch up to the right
+    /// mode within ~2 s. Regression guard against a hard 500.
+    #[test]
+    fn returns_none_when_anchor_missing() {
+        let html = b"<html><head></head><body>no script tag</body></html>";
+        assert!(inject_initial_mode(html, "match").is_none());
+    }
 }

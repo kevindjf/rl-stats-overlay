@@ -16,7 +16,25 @@ const noSpec = document.getElementById("no-spectator");
 const $ = (id) => document.getElementById(id);
 
 const VALID_MODES = new Set(["match", "session"]);
-let mode = "match"; // optimistic default until first /api/state poll lands.
+// First-paint mode: prefer the value the server injected into the page (so
+// the toggle's "active" tab matches reality from t=0). Falls back to "match"
+// when the page is opened standalone, e.g. from a regular browser tab.
+let mode = (typeof window.__INITIAL_POST_MATCH_MODE__ === "string"
+  && VALID_MODES.has(window.__INITIAL_POST_MATCH_MODE__))
+  ? window.__INITIAL_POST_MATCH_MODE__
+  : "match";
+
+// True when this page was loaded by the Tauri post-match HUD window (the
+// URL is `…/post-match-hud.html?from=tauri`). Forwarded onto every API
+// fetch so the backend's visibility gate can distinguish a Tauri request
+// from an OBS one and apply the right toggle (`show_post_match_hud` for
+// both, `show_post_match_obs` only for OBS).
+const IS_TAURI = new URLSearchParams(window.location.search).get("from") === "tauri";
+function withFrom(path) {
+  if (!IS_TAURI) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}from=tauri`;
+}
 
 function showCard(visible) {
   card.style.display = visible ? "" : "none";
@@ -337,7 +355,7 @@ function applySession(agg) {
 
 async function fetchLatest() {
   try {
-    const r = await fetch("/api/match-summary/latest");
+    const r = await fetch(withFrom("/api/match-summary/latest"));
     if (r.status === 204 || r.status === 404) return null;
     if (!r.ok) return null;
     return await r.json();
@@ -348,7 +366,7 @@ async function fetchLatest() {
 
 async function fetchSessionAgg() {
   try {
-    const r = await fetch("/api/session-summary");
+    const r = await fetch(withFrom("/api/session-summary"));
     if (r.status === 204 || r.status === 404) return null;
     if (!r.ok) return null;
     return await r.json();
@@ -436,9 +454,16 @@ async function setMode(next) {
   } catch (_) { /* offline / standalone — local mode still applies */ }
 }
 
-// Wire up toggle buttons. Initial active state is set by applyModeChange()
-// after the first /api/state poll lands; until then the HTML default
-// (data-mode="match" has class "active") wins.
+// Sync the toggle's "active" class with the resolved initial mode (server-
+// injected via window.__INITIAL_POST_MATCH_MODE__, or the "match" default).
+// Without this, a page loaded while `mode="session"` would show the Match
+// tab highlighted until the first /api/state poll triggers applyModeChange.
+document.querySelectorAll(".pm-mode").forEach((el) => {
+  el.classList.toggle("active", el.dataset.mode === mode);
+});
+applyTooltips(mode);
+
+// Wire up toggle buttons.
 document.querySelectorAll(".pm-mode").forEach((el) => {
   el.addEventListener("click", () => setMode(el.dataset.mode));
 });
