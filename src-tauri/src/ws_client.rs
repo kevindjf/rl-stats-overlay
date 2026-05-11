@@ -386,6 +386,28 @@ fn handle_message(app: &AppHandle, state: &Arc<AppState>, value: serde_json::Val
             if state.match_in_progress.swap(false, Ordering::SeqCst) {
                 let _ = app.emit("rlstats://match-in-progress", false);
             }
+            // Exiting a replay (or a normal match) clears the replay flag:
+            // future MatchCreated events should start counting again.
+            state.replay_session.store(false, Ordering::SeqCst);
+        }
+        "ReplayCreated" => {
+            // RL fired this when the user opened a replay via Match History.
+            // RL will then emit MatchCreated / UpdateState / GoalScored /
+            // MatchEnded for the replay — none of which should pollute the
+            // session counter or the matches.db record. Latch the flag so
+            // every downstream gate (begin_recorder, finalize_match,
+            // on_update_state cold-boot fallback) short-circuits, and undo
+            // anything an earlier MatchCreated for this replay may already
+            // have set up. Cleared on MatchDestroyed when the user exits.
+            if !state.replay_session.swap(true, Ordering::SeqCst) {
+                info!("ReplayCreated → suppressing match flow until MatchDestroyed");
+            }
+            *state.recorder.lock() = None;
+            *state.local_team.lock() = None;
+            if state.match_in_progress.swap(false, Ordering::SeqCst) {
+                let _ = app.emit("rlstats://match-in-progress", false);
+            }
+            reset_match_stats(app, state);
         }
         "GoalScored" => {
             // Persist into the in-progress match before forwarding the event.
@@ -440,6 +462,11 @@ fn begin_recorder(state: &Arc<AppState>, data: &serde_json::Value) {
     if !state.settings.lock().analytics_enabled {
         return;
     }
+    // A replay loaded via Match History is not a real match — never persist
+    // its events. The flag is cleared on MatchDestroyed when the user exits.
+    if state.replay_session.load(Ordering::Relaxed) {
+        return;
+    }
     let guid = data
         .get("MatchGuid")
         .and_then(|v| v.as_str())
@@ -473,12 +500,14 @@ fn on_update_state(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Va
     // Lazy-start the recorder: in some flows (mock or RL relaunching mid-match)
     // we get UpdateState before MatchInitialized. Spin it up on first sight so
     // we don't lose the early ticks of a match. Same opt-in gate as
-    // `begin_recorder` — skip allocation when analytics is disabled.
+    // `begin_recorder` — skip allocation when analytics is disabled OR when
+    // a replay is being viewed (those UpdateStates are not real-match ticks).
     {
         let mut rec_guard = state.recorder.lock();
         if rec_guard.is_none()
             && state.storage.get().is_some()
             && state.settings.lock().analytics_enabled
+            && !state.replay_session.load(Ordering::Relaxed)
         {
             let guid = data
                 .get("MatchGuid")
@@ -510,7 +539,29 @@ fn on_update_state(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Va
     // post-match HUD hide react even when we miss the lifecycle event.
     // CAS on swap ensures the transition emit only fires once per
     // "off→on" edge, no matter how many UpdateStates land.
-    if !state.match_in_progress.swap(true, Ordering::SeqCst) {
+    //
+    // Exceptions where we must NOT flip:
+    //   * Post-match podium ticks: RL keeps streaming UpdateStates after
+    //     `MatchEnded` (same MatchGuid, `Game.bHasWinner=true`). Without
+    //     this guard, the first podium tick re-flips `match_in_progress`
+    //     to true a few ms before the DB write completes, which makes both
+    //     the Tauri post-match window listener (race-guard) and the OBS
+    //     endpoint (`post_match_should_204`) hide the recap exactly when
+    //     it should appear. `bHasWinner` is the canonical spec signal for
+    //     "a team has won" (see stats-api.md UpdateState.Game).
+    //   * Replay sessions: the user opened a replay via Match History.
+    //     We've already cleared match_in_progress in the ReplayCreated
+    //     handler; don't undo it on the replay's UpdateStates.
+    let has_winner = data
+        .get("Game")
+        .and_then(|g| g.get("bHasWinner"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let in_replay = state.replay_session.load(Ordering::Relaxed);
+    if !has_winner
+        && !in_replay
+        && !state.match_in_progress.swap(true, Ordering::SeqCst)
+    {
         let _ = app.emit("rlstats://match-in-progress", true);
     }
 
@@ -652,9 +703,15 @@ fn on_match_ended(app: &AppHandle, state: &Arc<AppState>, data: &serde_json::Val
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
+    // Defense vs. an undocumented future change to the spec: if Psyonix ever
+    // ships a sentinel like -1 to signal "no winner" instead of omitting the
+    // field, we must not propagate it as a team index. Restrict to the only
+    // valid TeamNum values (0 = Blue, 1 = Orange) — everything else falls
+    // back to the score-derived path in `finalize_match`.
     let api_winner: Option<i32> = data
         .get("WinnerTeamNum")
         .and_then(|v| v.as_i64())
+        .filter(|w| (0..=1).contains(w))
         .map(|w| w as i32);
     finalize_match(app, state, &guid, api_winner, MatchEndSource::MatchEnded);
 }
@@ -687,6 +744,21 @@ fn finalize_match(
     api_winner: Option<i32>,
     source: MatchEndSource,
 ) {
+    // Replay sessions never reach this path with a meaningful payload — the
+    // user is watching a recording, not playing. Drop any in-flight recorder
+    // and skip every downstream side-effect (W/L tally, DB write, HUD emit).
+    if state.replay_session.load(Ordering::Relaxed) {
+        info!(
+            event = "match_skip",
+            reason = "replay_session",
+            source = ?source,
+            match_guid = guid,
+            "skipping finalize — user is viewing a replay"
+        );
+        *state.recorder.lock() = None;
+        return;
+    }
+
     // Cancelled-lobby guard: `local_team` is reset to None on every
     // MatchInitialized / MatchCreated / MatchDestroyed and only set again
     // when an UpdateState identifies the local player. If it's still None

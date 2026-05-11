@@ -113,6 +113,12 @@ pub struct AppState {
     /// to false on disconnect so a switch back to the real RL game restores
     /// normal behavior without a Tauri restart.
     pub mock_source: AtomicBool,
+    /// Set true when RL fires `ReplayCreated` — the user is watching a
+    /// replay loaded from Match History. Suppresses everything downstream
+    /// of `MatchCreated` / `UpdateState` / `MatchEnded` (recorder, W/L
+    /// tally, DB persistence, post-match HUD) so a replay can never be
+    /// mistaken for a real match. Cleared on `MatchDestroyed`.
+    pub replay_session: AtomicBool,
 }
 
 impl AppState {
@@ -137,6 +143,7 @@ impl AppState {
             storage: OnceCell::new(),
             recorder: Mutex::new(None),
             mock_source: AtomicBool::new(false),
+            replay_session: AtomicBool::new(false),
         })
     }
 

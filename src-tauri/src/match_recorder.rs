@@ -330,6 +330,20 @@ impl InProgressMatch {
         // last tick before MatchEnded must reflect the final score.
         self.refresh_core_and_meta(players, game, local_team_num);
 
+        // Skip SPECTATOR sampling during goal/history replays. The
+        // `Game.bReplay` flag (per stats-api.md UpdateState section) means
+        // the car telemetry on these ticks is the replay's playback, not
+        // live gameplay — including it would dilute boost_avg, supersonic %
+        // and total_distance by ~5-10% on high-scoring matches (each goal
+        // replay is ~8s of frozen-ish telemetry).
+        let in_replay = game
+            .and_then(|g| g.get("bReplay"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if in_replay {
+            return;
+        }
+
         // Decide whether to sample SPECTATOR fields on this tick. We aim for
         // roughly TARGET_SAMPLE_HZ and infer the upstream tick rate from the
         // first few intervals.
